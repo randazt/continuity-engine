@@ -1,0 +1,7 @@
+google-adk
+google-genai
+google-cloud-secret-manager
+clickhouse-connect
+python-dotenv
+fastapi
+uvicorn[standard]
