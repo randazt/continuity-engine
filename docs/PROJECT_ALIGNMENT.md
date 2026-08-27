@@ -28,12 +28,6 @@ STUDIO//ONE is not primarily a content generator, autonomous filmmaker, or gener
 
 Its central innovation is operational leverage: production memory, workflow intelligence, continuity, asset reuse, content and asset quality control, provenance, review, and institutional learning.
 
-## Case Study Relationship
-
-Awesomeverse is the real-world case study, not the product.
-
-The production methodology developed while creating Awesomeverse informs STUDIO//ONE, but the application must remain useful and understandable for filmmakers, designers, developers, content creators, animation teams, and small creative studios generally.
-
 ## Production Principles
 
 The hackathon implementation adapts these principles from the production workflow:
@@ -46,6 +40,56 @@ The hackathon implementation adapts these principles from the production workflo
 - Every important recommendation should be traceable to evidence.
 - Every production should leave behind reusable knowledge.
 - Content and asset quality control are mandatory parts of the production pipeline.
+
+## Creator Workflow
+
+STUDIO//ONE collaborates with the creator from ideation onward. The creator does not begin by submitting a completed Scene Packet.
+
+The authoritative user-facing workflow is exactly:
+
+```text
+BRAINSTORM → REFINE → FINALIZE STORYBOARD → GENERATE ASSETS → QUALITY CONTROL → POST PRODUCTION → PUBLISH
+```
+
+`BRAINSTORM`: The creator provides initial creative intent. Gemini collaborates on ideas using MCP-retrieved production memory. Outputs remain recommendations, not canon.
+
+`REFINE`: The creator selects or steers ideas. Gemini uses accumulated production memory and human direction. The concept becomes more production-ready without becoming approved canon automatically.
+
+`FINALIZE STORYBOARD`: STUDIO//ONE produces the complete production storyboard for creator approval. This is the main production handoff artifact and includes visual direction, image prompts, video prompts, dialogue, voice/TTS direction, SFX, ambience, music, timing, editing notes, continuity notes, asset requirements, reuse notes, and production guidance.
+
+`GENERATE ASSETS`: STUDIO//ONE performs asset audit and reuse-before-create inside this stage, identifies reusable assets first, generates or prepares required image assets, and produces video-generation prompts plus dialogue/audio handoff instructions. External creator tools remain manual handoffs where applicable.
+
+`QUALITY CONTROL`: STUDIO//ONE evaluates generated assets against the storyboard, continuity, production constraints, technical suitability, provenance, and quality. Failed assets loop back to `GENERATE ASSETS` for revision or regeneration.
+
+`POST PRODUCTION`: STUDIO//ONE prepares the editing package: approved storyboard, shot order, timing, dialogue, SFX, ambience, music direction, transitions, and editorial notes. STUDIO//ONE does not perform final editing; the creator edits externally.
+
+`PUBLISH`: STUDIO//ONE prepares creator-approved options for title, SEO, caption, description, hashtags, and platform-specific copy. STUDIO//ONE does not publish directly; the creator publishes manually.
+
+Scene Packets, storyboard plans, asset plans, QC records, and decision records are structured artifacts and state created and evolved inside this workflow.
+
+Knowledge capture, provenance, production memory, human governance, and audit history are cross-cutting system behaviors, not additional user-facing workflow stages.
+
+## Ownership Boundaries
+
+STUDIO//ONE provides collaborative ideation, concept refinement, production-memory retrieval through official `mcp-clickhouse`, storyboard / production-board generation, scene-level production planning, image prompts, video-generation prompts, dialogue, voice/TTS direction, sound effects cues, ambience, music direction, pacing, editing notes, asset requirements, asset audit / reuse-before-create analysis, content and asset QC, revision / regeneration recommendations, the `POST PRODUCTION` editing package, `PUBLISH` copy options for creator approval, provenance, governance, and knowledge capture.
+
+`PUBLISH` options may include SEO options, title options, captions, descriptions, hashtags, and platform-specific copy.
+
+STUDIO//ONE does not perform final video editing, operate the creator's external editing software, directly publish to social or online platforms, autonomously approve final creative decisions, autonomously establish canon, or call prohibited non-Google AI APIs in the submitted hackathon runtime.
+
+The system connects production knowledge and decisions across tools; it does not replace every creative-production tool.
+
+## External Tool Handoffs
+
+The STUDIO//ONE workflow may include manual external creator handoffs inside the appropriate workflow stage:
+
+- STUDIO//ONE prepares image prompts, asset requirements, and handoff notes.
+- Creator uses approved handoff packages in external tools when needed.
+- Creator brings resulting assets back for QC, provenance review, and knowledge capture.
+- During `POST PRODUCTION`, creator performs editing manually.
+- During `PUBLISH`, creator publishes manually.
+
+For hackathon compliance, external non-Google creative tools are manual creator handoffs, not STUDIO//ONE runtime AI integrations. STUDIO//ONE's submitted AI runtime remains Google-only. If image generation is demonstrated inside the submitted app, it must use an allowed Google Cloud generative-media capability.
 
 ## Human Authority
 
@@ -78,7 +122,9 @@ The agent must actively retrieve meaningful production context through the offic
 
 The MVP vertical slice is:
 
-Production request / Scene Packet -> authoritative context -> ClickHouse production-memory retrieval through MCP -> asset audit and reuse analysis -> continuity analysis -> content and asset QC -> evidence-backed Gemini recommendation -> explicit human review -> decision/audit record -> controlled production-state update -> knowledge capture.
+BRAINSTORM → REFINE → FINALIZE STORYBOARD → GENERATE ASSETS → QUALITY CONTROL → POST PRODUCTION → PUBLISH
+
+For the three-minute hackathon demo, STUDIO//ONE should show a vertical slice inside this real lifecycle rather than attempting to demonstrate the full production lifecycle end to end.
 
 ## MVP Quality-Control Scope
 
@@ -100,7 +146,10 @@ Findings are recommendations requiring human review.
 Initial production-memory concepts include:
 
 - Projects
+- Episode and production ideas
 - Assets
+- Storyboard and production plans
+- Asset plans
 - Review queue
 - Decision history
 - Provenance and evidence
@@ -108,6 +157,7 @@ Initial production-memory concepts include:
 - Source and version information
 - Reuse relationships
 - QC findings
+- QC records
 
 ## Competition Design Goal
 
@@ -115,9 +165,17 @@ Demonstrate a complete coherent product workflow rather than a collection of AI 
 
 ## Three-Minute Demo Thesis
 
-Show one creator giving STUDIO//ONE a real production objective.
+Show one creator starting with an episode or production idea.
 
-The agent retrieves production memory through ClickHouse MCP, identifies existing and reusable assets and production risks, performs continuity and QC reasoning, produces evidence-backed recommendations, asks the creator for a consequential decision, and records the resulting production knowledge.
+The agent retrieves production memory through ClickHouse MCP, supports `BRAINSTORM` and `REFINE`, produces a `FINALIZE STORYBOARD` candidate for creator approval, asks the creator for any consequential decision, and records resulting production knowledge through cross-cutting production memory and audit behavior.
+
+## Completed Runtime Checkpoint
+
+The following competition runtime path has been proven locally:
+
+`Creator -> Google ADK/Gemini -> official mcp-clickhouse -> ClickHouse production memory -> STUDIO//ONE refinement`
+
+The current proof uses `google.adk` `LlmAgent`, `Runner`, a constrained `FunctionTool`, Gemini `gemini-2.5-flash` on Vertex AI `us-central1`, and official `mcp-clickhouse` over stdio. Production-memory retrieval occurs through MCP, with no direct ClickHouse reads for agent context and no ClickHouse writes during the refinement proof.
 
 ## Judging Alignment
 
