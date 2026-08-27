@@ -57,9 +57,9 @@ BRAINSTORM → REFINE → FINALIZE STORYBOARD → GENERATE ASSETS → QUALITY CO
 
 `FINALIZE STORYBOARD`: STUDIO//ONE produces the complete production storyboard for creator approval. This is the main production handoff artifact and includes visual direction, image prompts, video prompts, dialogue, voice/TTS direction, SFX, ambience, music, timing, editing notes, continuity notes, asset requirements, reuse notes, and production guidance.
 
-`GENERATE ASSETS`: STUDIO//ONE performs asset audit and reuse-before-create inside this stage, identifies reusable assets first, generates or prepares required image assets, and produces video-generation prompts plus dialogue/audio handoff instructions. External creator tools remain manual handoffs where applicable.
+`GENERATE ASSETS`: STUDIO//ONE starts only from a creator-approved storyboard, extracts asset requirements, searches production memory for reuse opportunities, recommends reuse before new creation, identifies missing assets, and prepares production-ready image prompts, video prompts, dialogue direction, voice/TTS direction, and generation handoff packages. STUDIO//ONE does not generate images, video, or audio; the creator selects and operates any external generation tools.
 
-`QUALITY CONTROL`: STUDIO//ONE evaluates generated assets against the storyboard, continuity, production constraints, technical suitability, provenance, and quality. Failed assets loop back to `GENERATE ASSETS` for revision or regeneration.
+`QUALITY CONTROL`: STUDIO//ONE evaluates externally generated or reused assets against the storyboard, continuity, production constraints, technical suitability, provenance, and quality. Failed assets loop back to `GENERATE ASSETS` for revised prompts, revised handoff instructions, or creator-operated regeneration.
 
 `POST PRODUCTION`: STUDIO//ONE prepares the editing package: approved storyboard, shot order, timing, dialogue, SFX, ambience, music direction, transitions, and editorial notes. STUDIO//ONE does not perform final editing; the creator edits externally.
 
@@ -71,11 +71,11 @@ Knowledge capture, provenance, production memory, human governance, and audit hi
 
 ## Ownership Boundaries
 
-STUDIO//ONE provides collaborative ideation, concept refinement, production-memory retrieval through official `mcp-clickhouse`, storyboard / production-board generation, scene-level production planning, image prompts, video-generation prompts, dialogue, voice/TTS direction, sound effects cues, ambience, music direction, pacing, editing notes, asset requirements, asset audit / reuse-before-create analysis, content and asset QC, revision / regeneration recommendations, the `POST PRODUCTION` editing package, `PUBLISH` copy options for creator approval, provenance, governance, and knowledge capture.
+STUDIO//ONE provides collaborative ideation, concept refinement, production-memory retrieval through official `mcp-clickhouse`, storyboard / production-board generation, scene-level production planning, image prompts, video-generation prompts, dialogue, voice/TTS direction, sound effects cues, ambience, music direction, pacing, editing notes, asset requirements, asset audit / reuse-before-create analysis, generation handoff packages, content and asset QC, revision / regeneration recommendations for creator-operated tools, the `POST PRODUCTION` editing package, `PUBLISH` copy options for creator approval, provenance, governance, and knowledge capture.
 
 `PUBLISH` options may include SEO options, title options, captions, descriptions, hashtags, and platform-specific copy.
 
-STUDIO//ONE does not perform final video editing, operate the creator's external editing software, directly publish to social or online platforms, autonomously approve final creative decisions, autonomously establish canon, or call prohibited non-Google AI APIs in the submitted hackathon runtime.
+STUDIO//ONE does not perform final video editing, generate images, generate video, synthesize dialogue audio, call TTS providers, choose the creator's external generation platform, operate the creator's external editing software, directly publish to social or online platforms, autonomously approve final creative decisions, autonomously establish canon, or call prohibited non-Google AI APIs in the submitted hackathon runtime.
 
 The system connects production knowledge and decisions across tools; it does not replace every creative-production tool.
 
@@ -89,7 +89,19 @@ The STUDIO//ONE workflow may include manual external creator handoffs inside the
 - During `POST PRODUCTION`, creator performs editing manually.
 - During `PUBLISH`, creator publishes manually.
 
-For hackathon compliance, external non-Google creative tools are manual creator handoffs, not STUDIO//ONE runtime AI integrations. STUDIO//ONE's submitted AI runtime remains Google-only. If image generation is demonstrated inside the submitted app, it must use an allowed Google Cloud generative-media capability.
+STUDIO//ONE prepares production intelligence and generation packages; the creator selects and operates generation tools. External creative tools are manual creator handoffs, not STUDIO//ONE runtime AI integrations. STUDIO//ONE's submitted AI runtime remains Google-only and does not perform image generation, video generation, or dialogue-audio synthesis.
+
+## Asset-State Semantics
+
+STUDIO//ONE must keep these asset-state concepts distinct:
+
+- `asset_requirement`: a storyboard-derived need for an asset.
+- `reusable_existing_asset`: an existing production-memory asset that may satisfy a requirement.
+- `generation_prompt`: production-ready instructions for creator-operated generation; this is not an asset.
+- `externally_generated_asset`: an asset generated or prepared outside STUDIO//ONE and brought back for review.
+- `qc_approved_asset`: an asset that passed STUDIO//ONE quality control and any required human approval.
+
+A generated prompt is not an asset. An asset must not enter the approved asset library merely because a prompt exists.
 
 ## Human Authority
 

@@ -94,8 +94,8 @@ The creator does not start by submitting a completed Scene Packet. STUDIO//ONE c
 1. `BRAINSTORM`: Creator provides initial creative intent. The workflow service invokes Google ADK / Gemini, Gemini retrieves relevant production memory through official `mcp-clickhouse`, and outputs remain recommendations rather than canon.
 2. `REFINE`: Creator selects or steers ideas. Gemini uses MCP-retrieved production memory, accumulated project context, and human direction to make the concept more production-ready.
 3. `FINALIZE STORYBOARD`: STUDIO//ONE produces the complete production storyboard for creator approval, including visual direction, image prompts, video prompts, dialogue, voice/TTS direction, SFX, ambience, music, timing, editing notes, continuity notes, asset requirements, reuse notes, and production guidance.
-4. `GENERATE ASSETS`: STUDIO//ONE performs asset audit and reuse-before-create inside this stage, identifies reusable assets first, generates or prepares required image assets, and produces video-generation prompts plus dialogue/audio handoff instructions. External creator tools remain manual handoffs where applicable.
-5. `QUALITY CONTROL`: STUDIO//ONE evaluates generated assets against the storyboard, continuity, production constraints, technical suitability, provenance, and quality. Failed assets loop back to `GENERATE ASSETS` for revision or regeneration.
+4. `GENERATE ASSETS`: STUDIO//ONE starts only from a creator-approved storyboard, extracts storyboard asset requirements, searches production memory for reuse opportunities, recommends reuse before new creation, identifies missing assets, and prepares production-ready image prompts, video prompts, dialogue direction, voice/TTS direction, and generation handoff packages. STUDIO//ONE does not generate images, video, or audio; the creator selects and operates any external generation tools.
+5. `QUALITY CONTROL`: STUDIO//ONE evaluates externally generated or reused assets against the storyboard, continuity, production constraints, technical suitability, provenance, and quality. Failed assets loop back to `GENERATE ASSETS` for revised prompts, revised handoff instructions, or creator-operated regeneration.
 6. `POST PRODUCTION`: STUDIO//ONE prepares the editing package: approved storyboard, shot order, timing, dialogue, SFX, ambience, music direction, transitions, and editorial notes. STUDIO//ONE does not perform final editing; the creator edits externally.
 7. `PUBLISH`: STUDIO//ONE prepares creator-approved title, SEO, caption, description, hashtag, and platform-copy options. STUDIO//ONE does not publish directly; the creator publishes manually.
 
@@ -107,11 +107,23 @@ For the three-minute hackathon demo, STUDIO//ONE will show a vertical slice insi
 
 ## External Handoff Boundary
 
-STUDIO//ONE produces structured handoff packages, prompts, directions, notes, and QC findings. It does not operate external editing software or directly publish to social platforms.
+STUDIO//ONE produces structured handoff packages, prompts, directions, notes, and QC findings. It does not generate images, generate video, synthesize dialogue audio, operate external editing software, or directly publish to social platforms.
 
-External non-Google creative tools are manual creator handoffs, not STUDIO//ONE runtime AI integrations. The submitted runtime remains Google-only. If image generation is demonstrated inside the submitted app, it must use an allowed Google Cloud generative-media capability.
+STUDIO//ONE prepares production intelligence and generation packages; the creator selects and operates generation tools. External creative tools are manual creator handoffs, not STUDIO//ONE runtime AI integrations. The submitted runtime remains Google-only and does not perform image generation, video generation, or dialogue-audio synthesis.
 
 The architecture treats manual external outputs as artifacts that can return to STUDIO//ONE for QC, provenance, review, and knowledge capture.
+
+## Asset-State Semantics
+
+STUDIO//ONE must keep asset requirements, reuse candidates, prompts, externally generated assets, and approved assets as separate states:
+
+- `asset_requirement`: a storyboard-derived need for an asset.
+- `reusable_existing_asset`: an existing production-memory asset that may satisfy a requirement.
+- `generation_prompt`: production-ready instructions for creator-operated generation; this is not an asset.
+- `externally_generated_asset`: an asset generated or prepared outside STUDIO//ONE and brought back for review.
+- `qc_approved_asset`: an asset that passed STUDIO//ONE quality control and any required human approval.
+
+A generated prompt is not an asset and must not create an approved `assets` record. An asset enters the approved asset library only after the appropriate intake, provenance, QC, and human-governance path.
 
 ## Proven Runtime Checkpoint
 
@@ -197,11 +209,11 @@ Direct ClickHouse persistence responsibilities:
 
 Direct ClickHouse access must not be used to provide agent context in place of the official MCP integration.
 
-## Milestone 1 Objective
+## Current Slice Objective
 
-Prove the governed setup and first production slice: create a generic project, enter `BRAINSTORM`, allow creator direction into `REFINE`, and produce a structured `FINALIZE STORYBOARD` candidate for human approval without allowing AI output to become approved production state.
+Prove the governed setup and early production slice: create a generic project, enter `BRAINSTORM`, allow creator direction into `REFINE`, produce a structured `FINALIZE STORYBOARD` candidate for human approval, persist explicit storyboard approval, and enter `GENERATE ASSETS` only from approved storyboard production state without allowing AI output to become approved production state.
 
-## Milestone 1 Acceptance Criteria
+## Current Slice Acceptance Criteria
 
 - A local or hosted workflow creates a generic project before entering the seven-stage production workflow.
 - Project creation persists the creator's initial creative intent and optional production constraints without fabricating canon, approvals, decisions, assets, or constraints.
@@ -211,9 +223,10 @@ Prove the governed setup and first production slice: create a generic project, e
 - Retrieved context includes project production-memory data, initial creative intent, optional production constraints, and source/reference/version information where available.
 - Creator direction can steer the transition from `BRAINSTORM` to `REFINE`.
 - The workflow produces a structured `FINALIZE STORYBOARD` candidate for human approval, including the main production handoff fields.
-- No `GENERATE ASSETS`, `QUALITY CONTROL`, `POST PRODUCTION`, or `PUBLISH` implementation is required for this milestone.
+- `GENERATE ASSETS` prepares provider-neutral asset requirements, reuse audit results, prompts, and handoff instructions from an approved storyboard.
+- No `QUALITY CONTROL`, `POST PRODUCTION`, or `PUBLISH` implementation is required for this slice.
 - No `decision_log` entry is created during recommendation or storyboard-candidate generation.
-- No asset row is created before the `GENERATE ASSETS` stage.
+- No asset row is created merely because a prompt or generation package exists.
 - No consequential production-state update is applied without explicit human approval.
 - Provenance includes authority level, authoritative source/reference, source version where applicable, evidence reference, approval/status state, Gemini model metadata, and human reviewer identity where applicable.
 
@@ -227,7 +240,7 @@ Prove the governed setup and first production slice: create a generic project, e
 - Whether approved production-state updates should use append-only version rows, explicit supersession columns, or ClickHouse mutations.
 - How much source-document storage is in scope versus storing references to external canon, production bibles, Scene Packets, and asset systems.
 - Minimal UI implementation approach for a coherent hosted product experience without overbuilding.
-- Exact Google Cloud generative-media capability to use if image generation is demonstrated inside the submitted app.
+- Exact intake shape for externally generated assets returning to STUDIO//ONE before `QUALITY CONTROL`.
 - Final shape of `POST PRODUCTION` and `PUBLISH` package artifacts for later slices.
 
 Further implementation should continue to be reviewed against PROJECT_ALIGNMENT.md and hackathon compliance requirements.

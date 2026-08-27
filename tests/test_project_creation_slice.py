@@ -133,7 +133,13 @@ class WorkflowStageTests(unittest.TestCase):
         self.assertEqual(len(CANONICAL_STAGE_IDENTIFIERS), 7)
         self.assertEqual(
             IMPLEMENTED_STAGE_IDENTIFIERS,
-            ("brainstorm", "refine", "finalize_storyboard"),
+            (
+                "brainstorm",
+                "refine",
+                "finalize_storyboard",
+                "generate_assets",
+                "quality_control",
+            ),
         )
 
     def test_creator_action_is_required_for_brainstorm_to_refine(self) -> None:

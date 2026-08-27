@@ -20,4 +20,6 @@ IMPLEMENTED_STAGE_IDENTIFIERS = (
     StudioOneStage.BRAINSTORM.value,
     StudioOneStage.REFINE.value,
     StudioOneStage.FINALIZE_STORYBOARD.value,
+    StudioOneStage.GENERATE_ASSETS.value,
+    StudioOneStage.QUALITY_CONTROL.value,
 )

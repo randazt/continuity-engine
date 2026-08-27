@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, TypeVar
+from typing import Any, Awaitable, Callable, Literal, TypeVar
 from uuid import uuid4
 
 from google.adk.agents import LlmAgent
@@ -14,11 +14,13 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.tools import FunctionTool
 from google.genai import types
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 
 from studio_one.integrations.clickhouse_mcp import (
     GOOGLE_CLOUD_PROJECT,
     retrieve_project_memory_bundle,
+    retrieve_qc_memory_bundle,
 )
 from studio_one.workflow.stages import StudioOneStage
 
@@ -39,6 +41,24 @@ NON_FABRICATION_STATEMENT = (
     "No project facts, characters, history, prior canon, assets, locations, "
     "QC records, decisions, or constraints are invented; unstated information "
     "remains unknown/open."
+)
+GENERATE_ASSETS_GOVERNANCE_BOUNDARY = (
+    "GENERATE ASSETS produces provider-neutral instructions for creator-operated "
+    "asset generation and reuse decisions; no image, video, or dialogue audio "
+    "has been generated, no asset has been created, and no asset is QC-approved."
+)
+ASSET_STATE_BOUNDARY = (
+    "asset_requirement != generation_prompt != externally_generated_asset != "
+    "qc_approved_asset"
+)
+PROVIDER_SELECTION_BOUNDARY = (
+    "The creator selects and operates any external generation tools; STUDIO//ONE "
+    "does not choose or call an image, video, or TTS provider."
+)
+QUALITY_CONTROL_GOVERNANCE_BOUNDARY = (
+    "QUALITY CONTROL output is an AI recommendation only; creator decision and "
+    "controlled application persistence are required before any asset-library "
+    "change."
 )
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
@@ -114,6 +134,170 @@ class StoryboardCandidate(BaseModel):
     non_fabrication_statement: str
 
 
+class AssetRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement_id: str
+    storyboard_reference: str
+    narrative_purpose: str
+    asset_requirement_type: str
+    description: str
+    classification: Literal["reusable_existing_asset", "missing_asset"]
+    reuse_assessment: str
+    source_provenance_references: list[str]
+
+
+class ReusableExistingAsset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement_id: str
+    storyboard_reference: str
+    asset_id: str
+    asset_type: str
+    name: str
+    reuse_rationale: str
+    continuity_notes: str
+    source_provenance_references: list[str]
+
+
+class MissingAsset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement_id: str
+    storyboard_reference: str
+    asset_requirement_type: str
+    description: str
+    reason_no_reusable_asset_found: str
+    source_provenance_references: list[str]
+
+
+class ImagePromptPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str
+    approved_storyboard_id: str
+    approved_storyboard_version: int = Field(ge=1)
+    storyboard_reference: str
+    narrative_purpose: str
+    asset_requirement_type: str
+    reuse_assessment: str
+    production_constraints: list[str]
+    composition: str
+    camera_framing: str
+    environment: str
+    lighting: str
+    subject_character_requirements: str
+    continuity_requirements: list[str]
+    technical_requirements: list[str]
+    positive_image_prompt: str
+    negative_avoid_instructions: str
+    source_provenance_references: list[str]
+
+
+class VideoPromptPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storyboard_reference: str
+    approved_still_image_dependency: str
+    starting_frame_intent: str
+    ending_frame_intent: str
+    motion_description: str
+    camera_motion: str
+    environmental_motion: str
+    character_subject_motion: str
+    duration: str
+    continuity_requirements: list[str]
+    video_generation_prompt: str
+    source_provenance_references: list[str]
+
+
+class DialogueAudioHandoff(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storyboard_reference: str
+    speaker_role: str
+    exact_dialogue: str
+    emotion: str
+    pacing: str
+    delivery: str
+    pauses: str
+    breathing: str
+    emphasis: str
+    continuity_voice_notes: str
+
+
+class SoundMusicHandoff(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storyboard_reference: str
+    sound_effects: list[str]
+    ambience: str
+    music_direction: str
+    source_provenance_references: list[str]
+
+
+class GenerateAssetsPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    project_id: str
+    approved_storyboard_id: str
+    approved_storyboard_version: int = Field(ge=1)
+    package_status: Literal["instructions_for_creator"]
+    asset_requirements: list[AssetRequirement]
+    reusable_existing_assets: list[ReusableExistingAsset]
+    missing_assets: list[MissingAsset]
+    image_prompt_packages: list[ImagePromptPackage]
+    video_prompt_packages: list[VideoPromptPackage]
+    dialogue_audio_handoffs: list[DialogueAudioHandoff]
+    sound_music_handoffs: list[SoundMusicHandoff]
+    provenance_references: list[str]
+    governance_boundary: str
+    asset_state_boundary: str
+    provider_selection_boundary: str
+
+
+class QualityControlAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    project_id: str
+    external_asset_candidate_id: str
+    approved_storyboard_id: str
+    approved_storyboard_version: int = Field(ge=1)
+    source_generation_package_id: str | None = None
+    source_generation_package_version: int = Field(ge=0)
+    evaluated_asset_type: str
+    storyboard_alignment: str
+    prompt_instruction_alignment: str
+    continuity_assessment: str
+    production_constraint_assessment: str
+    technical_quality_assessment: str
+    dialogue_audio_assessment: str
+    provenance_assessment: str
+    detected_issues: list[str]
+    required_corrections: list[str]
+    strengths: list[str]
+    recommendation: Literal[
+        "recommend_approve",
+        "recommend_reject",
+        "recommend_revision",
+    ]
+    confidence: float = Field(ge=0, le=1)
+    rationale: str
+    evidence_references: list[str]
+    governance_boundary: str
+    non_fabrication_statement: str
+
+
+class ApprovedStoryboardRequiredError(RuntimeError):
+    """Raised when GENERATE ASSETS is requested without approved storyboard state."""
+
+
+class QualityControlContextRequiredError(RuntimeError):
+    """Raised when QUALITY CONTROL lacks exact candidate provenance context."""
+
+
 def _configure_vertex_environment() -> None:
     os.environ.setdefault("GOOGLE_GENAI_USE_ENTERPRISE", "true")
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GOOGLE_CLOUD_PROJECT)
@@ -166,6 +350,46 @@ Stage behavior:
 - Set non_fabrication_statement exactly to: {NON_FABRICATION_STATEMENT}
 """.strip()
 
+    if stage == StudioOneStage.GENERATE_ASSETS:
+        return f"""
+Stage behavior:
+- This stage means asset planning, reuse audit, and prompt/handoff package creation.
+- Use only the latest approved storyboard returned in production_memory.latest_approved_storyboard.
+- A pending storyboard candidate in review_queue is insufficient.
+- Use production_memory.assets as the existing project asset inventory.
+- For every approved storyboard panel or shot, extract required production assets.
+- Evaluate reuse before declaring any missing asset.
+- Classify each asset requirement exactly as reusable_existing_asset or missing_asset.
+- Do not fabricate reusable assets. If production_memory.assets is empty, reusable_existing_assets must be empty and missing asset reasons must say no reusable assets were found.
+- Create ImagePromptPackage records only for missing visual assets.
+- Create VideoPromptPackage records only where the approved storyboard indicates motion or video instructions.
+- Create DialogueAudioHandoff records only where spoken dialogue exists.
+- Preserve SFX, ambience, and music direction in SoundMusicHandoff records.
+- Prompts and handoff instructions are not assets.
+- Do not claim that images, video, speech, external assets, or QC-approved assets were created.
+- Do not name or choose an external generation provider.
+- Do not advance to QUALITY CONTROL.
+- Set stage exactly to: {StudioOneStage.GENERATE_ASSETS.value}
+- Set package_status exactly to: instructions_for_creator
+- Set governance_boundary exactly to: {GENERATE_ASSETS_GOVERNANCE_BOUNDARY}
+- Set asset_state_boundary exactly to: {ASSET_STATE_BOUNDARY}
+- Set provider_selection_boundary exactly to: {PROVIDER_SELECTION_BOUNDARY}
+""".strip()
+
+    if stage == StudioOneStage.QUALITY_CONTROL:
+        return f"""
+Stage behavior:
+- Evaluate only the MCP-retrieved external asset candidate against the exact approved storyboard, relevant panel/shot, exact generation package when present, project constraints, and existing approved asset context.
+- A generation package by itself is insufficient; an approved storyboard by itself is insufficient.
+- Do not claim approval, promotion, or authoritative asset-library state.
+- Do not output fields named approved, approved_for_promotion, qc_approved_asset, human_approved, or promoted_to_assets.
+- Set recommendation exactly to one of: recommend_approve, recommend_reject, recommend_revision.
+- Treat the recommendation as an AI recommendation only.
+- Set stage exactly to: {StudioOneStage.QUALITY_CONTROL.value}
+- Set governance_boundary exactly to: {QUALITY_CONTROL_GOVERNANCE_BOUNDARY}
+- Set non_fabrication_statement exactly to: {NON_FABRICATION_STATEMENT}
+""".strip()
+
     raise ValueError(f"Stage is not implemented: {stage.value}")
 
 
@@ -173,6 +397,7 @@ def build_stage_agent(
     project_id: str,
     stage: StudioOneStage,
     output_schema: type[OutputModel],
+    memory_retriever: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> LlmAgent:
     if not project_id:
         raise ValueError("project_id is required")
@@ -181,6 +406,8 @@ def build_stage_agent(
 
     async def retrieve_stage_memory() -> dict[str, Any]:
         """Retrieve project memory through official mcp-clickhouse."""
+        if memory_retriever is not None:
+            return await memory_retriever()
         return await retrieve_project_memory_bundle(project_id=project_id)
 
     project_context = "\n".join(_project_context_lines(project_id, stage))
@@ -200,7 +427,9 @@ Global rules:
 - Current creator direction may supplement durable project context, but it does not replace MCP-retrieved project memory.
 - AI recommendations are not approved production state and must be phrased as proposals.
 - Do not invent characters, history, prior canon, assets, locations, QC records, decisions, or constraints.
-- Do not create assets, perform QC, prepare post-production, publish, or mutate production state.
+- Do not create assets, prepare post-production, publish, or mutate production state from inside the agent.
+- Perform QUALITY CONTROL only when the requested stage is quality_control.
+- Do not call or choose external image, video, or TTS providers.
 - The current project asset count must remain explicit where relevant.
 
 {_stage_task_instruction(stage)}
@@ -300,11 +529,17 @@ async def _run_stage_agent(
     stage: StudioOneStage,
     output_schema: type[OutputModel],
     user_message_text: str,
+    memory_retriever: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     if not project_id:
         raise ValueError("project_id is required")
 
-    agent = build_stage_agent(project_id, stage, output_schema)
+    agent = build_stage_agent(
+        project_id,
+        stage,
+        output_schema,
+        memory_retriever=memory_retriever,
+    )
     session_service = InMemorySessionService()
     app_name = "studio_one"
     user_id = "local_creator"
@@ -392,6 +627,265 @@ async def _run_stage_agent(
     }
 
 
+def _require_generate_assets_memory(production_memory: dict[str, Any] | None) -> None:
+    if not production_memory:
+        raise ApprovedStoryboardRequiredError(
+            "GENERATE ASSETS requires MCP-retrieved production memory"
+        )
+
+    storyboard = production_memory.get("latest_approved_storyboard")
+    if not storyboard:
+        raise ApprovedStoryboardRequiredError(
+            "GENERATE ASSETS requires an approved storyboard; pending candidates "
+            "in review_queue are insufficient"
+        )
+
+    if storyboard.get("status") != "approved":
+        raise ApprovedStoryboardRequiredError("latest storyboard is not approved")
+    if storyboard.get("approval_status") != "approved":
+        raise ApprovedStoryboardRequiredError(
+            "latest storyboard approval_status is not approved"
+        )
+    if storyboard.get("authority_level") != "approved_production_state":
+        raise ApprovedStoryboardRequiredError(
+            "latest storyboard is not authoritative production state"
+        )
+
+
+def _validate_generate_assets_package(report: dict[str, Any]) -> None:
+    output = GenerateAssetsPackage.model_validate(report["structured_output"])
+    if output.stage != StudioOneStage.GENERATE_ASSETS.value:
+        raise RuntimeError("GENERATE ASSETS output used the wrong stage")
+    if output.governance_boundary != GENERATE_ASSETS_GOVERNANCE_BOUNDARY:
+        raise RuntimeError("GENERATE ASSETS governance boundary changed")
+    if output.asset_state_boundary != ASSET_STATE_BOUNDARY:
+        raise RuntimeError("GENERATE ASSETS asset-state boundary changed")
+    if output.provider_selection_boundary != PROVIDER_SELECTION_BOUNDARY:
+        raise RuntimeError("GENERATE ASSETS provider-selection boundary changed")
+
+    memory = report.get("production_memory") or {}
+    storyboard = memory.get("latest_approved_storyboard") or {}
+    if output.approved_storyboard_id != storyboard.get("storyboard_id"):
+        raise RuntimeError("package does not reference the MCP-approved storyboard")
+    if output.approved_storyboard_version != int(storyboard.get("storyboard_version")):
+        raise RuntimeError("package does not reference the approved storyboard version")
+
+    existing_assets = memory.get("assets") or []
+    if not existing_assets and output.reusable_existing_assets:
+        raise RuntimeError("reusable assets were fabricated from empty asset inventory")
+
+
+def _require_quality_control_memory(
+    production_memory: dict[str, Any] | None,
+    expected_project_id: str,
+    expected_candidate_id: str,
+) -> None:
+    if not production_memory:
+        raise QualityControlContextRequiredError(
+            "QUALITY CONTROL requires MCP-retrieved production memory"
+        )
+
+    project = production_memory.get("project") or {}
+    if project.get("project_id") != expected_project_id:
+        raise QualityControlContextRequiredError(
+            "retrieved project does not match requested project"
+        )
+
+    candidate = production_memory.get("external_asset_candidate")
+    if not candidate:
+        raise QualityControlContextRequiredError(
+            "QUALITY CONTROL requires an external asset intake candidate"
+        )
+    if candidate.get("project_id") != expected_project_id:
+        raise QualityControlContextRequiredError(
+            "external asset candidate does not belong to requested project"
+        )
+    if candidate.get("external_asset_candidate_id") != expected_candidate_id:
+        raise QualityControlContextRequiredError(
+            "external asset candidate does not match requested candidate"
+        )
+    if candidate.get("intake_status") != "submitted_for_qc":
+        raise QualityControlContextRequiredError(
+            "external asset candidate is not submitted for QC"
+        )
+    if candidate.get("qc_status") != "pending_qc":
+        raise QualityControlContextRequiredError(
+            "external asset candidate is not pending QC"
+        )
+    if candidate.get("authority_level") != "external_asset_candidate":
+        raise QualityControlContextRequiredError(
+            "external asset candidate authority level is invalid"
+        )
+    if not candidate.get("external_asset_reference"):
+        raise QualityControlContextRequiredError(
+            "external asset candidate must include creator-submitted media reference"
+        )
+
+    storyboard = production_memory.get("approved_storyboard")
+    if not storyboard:
+        raise QualityControlContextRequiredError(
+            "QUALITY CONTROL requires the exact approved storyboard version"
+        )
+    if storyboard.get("status") != "approved":
+        raise QualityControlContextRequiredError("storyboard is not approved")
+    if storyboard.get("approval_status") != "approved":
+        raise QualityControlContextRequiredError(
+            "storyboard approval_status is not approved"
+        )
+    if storyboard.get("authority_level") != "approved_production_state":
+        raise QualityControlContextRequiredError(
+            "storyboard is not authoritative production state"
+        )
+    if storyboard.get("storyboard_id") != candidate.get("approved_storyboard_id"):
+        raise QualityControlContextRequiredError(
+            "candidate storyboard_id does not match retrieved storyboard"
+        )
+    if int(storyboard.get("storyboard_version") or 0) != int(
+        candidate.get("approved_storyboard_version") or 0
+    ):
+        raise QualityControlContextRequiredError(
+            "candidate storyboard_version does not match retrieved storyboard"
+        )
+    if not production_memory.get("relevant_storyboard_panel"):
+        raise QualityControlContextRequiredError(
+            "QUALITY CONTROL requires the relevant storyboard panel/shot"
+        )
+
+    package_id = _optional_memory_id(candidate.get("source_generation_package_id"))
+    package_version = int(candidate.get("source_generation_package_version") or 0)
+    package = production_memory.get("generation_package")
+    if package_id:
+        if not package:
+            raise QualityControlContextRequiredError(
+                "candidate references a generation package that was not retrieved"
+            )
+        if package.get("generation_package_id") != package_id:
+            raise QualityControlContextRequiredError(
+                "retrieved generation package ID does not match candidate"
+            )
+        if int(package.get("package_version") or 0) != package_version:
+            raise QualityControlContextRequiredError(
+                "retrieved generation package version does not match candidate"
+            )
+        if package.get("approved_storyboard_id") != candidate.get(
+            "approved_storyboard_id"
+        ):
+            raise QualityControlContextRequiredError(
+                "generation package storyboard_id does not match candidate"
+            )
+        if int(package.get("approved_storyboard_version") or 0) != int(
+            candidate.get("approved_storyboard_version") or 0
+        ):
+            raise QualityControlContextRequiredError(
+                "generation package storyboard_version does not match candidate"
+            )
+        if package.get("storyboard_panel_shot_reference") != candidate.get(
+            "storyboard_panel_shot_reference"
+        ):
+            raise QualityControlContextRequiredError(
+                "generation package storyboard reference does not match candidate"
+            )
+        if package.get("status") != "instructions_for_creator":
+            raise QualityControlContextRequiredError(
+                "generation package is not an instruction package"
+            )
+        if package.get("authority_level") != "production_instruction":
+            raise QualityControlContextRequiredError(
+                "generation package authority level is invalid"
+            )
+    elif package_version:
+        raise QualityControlContextRequiredError(
+            "generation package version requires generation package ID"
+        )
+
+
+def _validate_quality_control_assessment(report: dict[str, Any]) -> None:
+    output = QualityControlAssessment.model_validate(report["structured_output"])
+    if output.stage != StudioOneStage.QUALITY_CONTROL.value:
+        raise RuntimeError("QUALITY CONTROL output used the wrong stage")
+    if output.governance_boundary != QUALITY_CONTROL_GOVERNANCE_BOUNDARY:
+        raise RuntimeError("QUALITY CONTROL governance boundary changed")
+    if output.non_fabrication_statement != NON_FABRICATION_STATEMENT:
+        raise RuntimeError("QUALITY CONTROL non-fabrication statement changed")
+
+    memory = report.get("production_memory") or {}
+    candidate = memory.get("external_asset_candidate") or {}
+    storyboard = memory.get("approved_storyboard") or {}
+    package = memory.get("generation_package") or {}
+    if output.project_id != candidate.get("project_id"):
+        raise RuntimeError("QC assessment project_id does not match candidate")
+    if output.external_asset_candidate_id != candidate.get(
+        "external_asset_candidate_id"
+    ):
+        raise RuntimeError("QC assessment candidate_id does not match MCP candidate")
+    if output.approved_storyboard_id != storyboard.get("storyboard_id"):
+        raise RuntimeError("QC assessment storyboard_id does not match MCP storyboard")
+    if output.approved_storyboard_version != int(
+        storyboard.get("storyboard_version") or 0
+    ):
+        raise RuntimeError(
+            "QC assessment storyboard_version does not match MCP storyboard"
+        )
+    if output.evaluated_asset_type != candidate.get("asset_type"):
+        raise RuntimeError("QC assessment asset type does not match MCP candidate")
+
+    package_id = _optional_memory_id(candidate.get("source_generation_package_id"))
+    if package_id:
+        if output.source_generation_package_id != package_id:
+            raise RuntimeError(
+                "QC assessment package_id does not match MCP candidate"
+            )
+        if output.source_generation_package_version != int(
+            candidate.get("source_generation_package_version") or 0
+        ):
+            raise RuntimeError(
+                "QC assessment package_version does not match MCP candidate"
+            )
+        if package.get("generation_package_id") != package_id:
+            raise RuntimeError("MCP generation package does not match candidate")
+    else:
+        if output.source_generation_package_id is not None:
+            raise RuntimeError("QC assessment invented a generation package ID")
+        if output.source_generation_package_version != 0:
+            raise RuntimeError("QC assessment invented a generation package version")
+
+    prohibited_values = {
+        "approved",
+        "approved_for_promotion",
+        "qc_approved_asset",
+        "human_approved",
+        "promoted_to_assets",
+    }
+    for value in _string_values(output.model_dump()):
+        if value in prohibited_values:
+            raise RuntimeError("QC assessment contained an approval-state value")
+
+
+def _optional_memory_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"none", "null"}:
+        return None
+    return text
+
+
+def _string_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        values: list[str] = []
+        for item in value:
+            values.extend(_string_values(item))
+        return values
+    if isinstance(value, dict):
+        values = []
+        for item in value.values():
+            values.extend(_string_values(item))
+        return values
+    return []
+
+
 async def run_brainstorm_agent(project_id: str) -> dict[str, Any]:
     """Run BRAINSTORM from MCP-retrieved initial creative intent."""
     return await _run_stage_agent(
@@ -442,6 +936,91 @@ async def run_finalize_storyboard_agent(
             f"{action}\nTarget total runtime: {runtime_note}"
         ),
     )
+
+
+async def run_generate_assets_agent(project_id: str) -> dict[str, Any]:
+    """Run GENERATE ASSETS only when MCP returns an approved storyboard."""
+    preflight = await retrieve_project_memory_bundle(project_id=project_id)
+    _require_generate_assets_memory(preflight.get("production_memory"))
+
+    report = await _run_stage_agent(
+        project_id=project_id,
+        stage=StudioOneStage.GENERATE_ASSETS,
+        output_schema=GenerateAssetsPackage,
+        user_message_text=(
+            "Prepare the GENERATE ASSETS package from the MCP-retrieved "
+            "approved storyboard and existing asset inventory. Do not generate "
+            "images, video, or dialogue audio."
+        ),
+    )
+    _require_generate_assets_memory(report.get("production_memory"))
+    _validate_generate_assets_package(report)
+    report["validation"].update(
+        {
+            "approved_storyboard_required": True,
+            "approved_storyboard_found": True,
+            "existing_assets_checked_before_missing_assets": True,
+            "asset_rows_created": 0,
+            "external_generation_provider_called": False,
+            "gemini_can_mark_assets_generated_or_qc_approved": False,
+        }
+    )
+    return report
+
+
+async def run_quality_control_agent(
+    project_id: str,
+    external_asset_candidate_id: str,
+) -> dict[str, Any]:
+    """Run QUALITY CONTROL against one MCP-retrieved external asset candidate."""
+    candidate_id = external_asset_candidate_id.strip()
+    if not candidate_id:
+        raise ValueError("external_asset_candidate_id is required")
+
+    async def retrieve_qc_stage_memory() -> dict[str, Any]:
+        return await retrieve_qc_memory_bundle(
+            project_id=project_id,
+            external_asset_candidate_id=candidate_id,
+        )
+
+    preflight = await retrieve_qc_stage_memory()
+    _require_quality_control_memory(
+        preflight.get("production_memory"),
+        project_id,
+        candidate_id,
+    )
+
+    report = await _run_stage_agent(
+        project_id=project_id,
+        stage=StudioOneStage.QUALITY_CONTROL,
+        output_schema=QualityControlAssessment,
+        user_message_text=(
+            "Evaluate the MCP-retrieved external asset candidate against the "
+            "exact approved storyboard, relevant panel/shot, package "
+            "instructions when present, project constraints, and existing "
+            "approved asset context. Return only an AI QC recommendation."
+        ),
+        memory_retriever=retrieve_qc_stage_memory,
+    )
+    _require_quality_control_memory(
+        report.get("production_memory"),
+        project_id,
+        candidate_id,
+    )
+    _validate_quality_control_assessment(report)
+    report["validation"].update(
+        {
+            "external_asset_candidate_required": True,
+            "candidate_found": True,
+            "exact_approved_storyboard_required": True,
+            "exact_generation_package_checked_when_present": True,
+            "agent_memory_retrieval_path": "official_mcp_clickhouse",
+            "review_queue_rows_created_by_agent": 0,
+            "asset_rows_created_by_agent": 0,
+            "gemini_can_approve_or_promote_asset": False,
+        }
+    )
+    return report
 
 
 async def run_refinement_agent(

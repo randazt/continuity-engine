@@ -23,7 +23,15 @@ PROJECT_ID = "continuity-engine-506601"
 SECRET_NAME = "clickhouse-password"
 CLICKHOUSE_HOST = "hoe2r5j8zb.us-east1.gcp.clickhouse.cloud"
 CLICKHOUSE_DATABASE = "continuity_engine"
-EXPECTED_TABLES = ["projects", "assets", "review_queue", "decision_log"]
+EXPECTED_TABLES = [
+    "projects",
+    "assets",
+    "review_queue",
+    "decision_log",
+    "storyboards",
+    "generation_packages",
+    "external_asset_intake",
+]
 
 
 def redact(value: Any, secret_value: str | None) -> Any:
