@@ -235,7 +235,7 @@ class GenerateAssetsMcpTests(unittest.TestCase):
         query = _assets_inventory_query(PROJECT_ID, "test_db")
 
         self.assertIn("FROM `test_db`.`assets`", query)
-        self.assertIn("WHERE project_id =", query)
+        self.assertIn("WHERE a.project_id =", query)
         self.assertIn("ORDER BY asset_type, name, asset_id", query)
         self.assertIn("reuse_relationship", query)
         self.assertIn("approved_decision_id", query)
@@ -370,6 +370,8 @@ class GenerateAssetsPackageContractTests(unittest.IsolatedAsyncioTestCase):
                 "finalize_storyboard",
                 "generate_assets",
                 "quality_control",
+                "post_production",
+                "publish",
             ),
         )
 

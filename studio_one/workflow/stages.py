@@ -22,4 +22,6 @@ IMPLEMENTED_STAGE_IDENTIFIERS = (
     StudioOneStage.FINALIZE_STORYBOARD.value,
     StudioOneStage.GENERATE_ASSETS.value,
     StudioOneStage.QUALITY_CONTROL.value,
+    StudioOneStage.POST_PRODUCTION.value,
+    StudioOneStage.PUBLISH.value,
 )

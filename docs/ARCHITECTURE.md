@@ -211,7 +211,7 @@ Direct ClickHouse access must not be used to provide agent context in place of t
 
 ## Current Slice Objective
 
-Prove the governed setup and early production slice: create a generic project, enter `BRAINSTORM`, allow creator direction into `REFINE`, produce a structured `FINALIZE STORYBOARD` candidate for human approval, persist explicit storyboard approval, and enter `GENERATE ASSETS` only from approved storyboard production state without allowing AI output to become approved production state.
+Prove the governed setup and production slice: create a generic project, enter `BRAINSTORM`, allow creator direction into `REFINE`, produce a structured `FINALIZE STORYBOARD` candidate for human approval, persist explicit storyboard approval, enter `GENERATE ASSETS` only from approved storyboard production state, run governed `QUALITY CONTROL` for creator-supplied external asset candidates, prepare a request-scoped `POST PRODUCTION` editing package from approved production state, and prepare a request-scoped `PUBLISH` package for creator approval and manual posting without allowing AI output to become approved production state.
 
 ## Current Slice Acceptance Criteria
 
@@ -224,7 +224,9 @@ Prove the governed setup and early production slice: create a generic project, e
 - Creator direction can steer the transition from `BRAINSTORM` to `REFINE`.
 - The workflow produces a structured `FINALIZE STORYBOARD` candidate for human approval, including the main production handoff fields.
 - `GENERATE ASSETS` prepares provider-neutral asset requirements, reuse audit results, prompts, and handoff instructions from an approved storyboard.
-- No `QUALITY CONTROL`, `POST PRODUCTION`, or `PUBLISH` implementation is required for this slice.
+- `QUALITY CONTROL` evaluates creator-supplied external asset candidates against exact MCP-retrieved storyboard, package, project, and asset provenance, then creates pending human-review recommendations only.
+- `POST PRODUCTION` prepares provider-neutral editing instructions from approved storyboard and approved asset state. It does not edit, render, upload to editing software, publish, or store the editing package as an asset.
+- `PUBLISH` prepares provider-neutral title, SEO, caption, description, hashtag, thumbnail/key-art, accessibility, and platform-copy options from approved production state plus creator-supplied final-edit context. It does not authenticate to social media, video platforms, websites, or external services; call publishing APIs; upload media; schedule posts; click publish; claim content is live; or store the package as approved production state.
 - No `decision_log` entry is created during recommendation or storyboard-candidate generation.
 - No asset row is created merely because a prompt or generation package exists.
 - No consequential production-state update is applied without explicit human approval.
@@ -240,7 +242,6 @@ Prove the governed setup and early production slice: create a generic project, e
 - Whether approved production-state updates should use append-only version rows, explicit supersession columns, or ClickHouse mutations.
 - How much source-document storage is in scope versus storing references to external canon, production bibles, Scene Packets, and asset systems.
 - Minimal UI implementation approach for a coherent hosted product experience without overbuilding.
-- Exact intake shape for externally generated assets returning to STUDIO//ONE before `QUALITY CONTROL`.
-- Final shape of `POST PRODUCTION` and `PUBLISH` package artifacts for later slices.
+- Whether later submission workflows need durable package/artifact persistence for `POST PRODUCTION` or `PUBLISH`; the current milestone keeps both package types request-scoped.
 
 Further implementation should continue to be reviewed against PROJECT_ALIGNMENT.md and hackathon compliance requirements.

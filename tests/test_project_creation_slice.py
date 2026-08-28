@@ -139,6 +139,8 @@ class WorkflowStageTests(unittest.TestCase):
                 "finalize_storyboard",
                 "generate_assets",
                 "quality_control",
+                "post_production",
+                "publish",
             ),
         )
 

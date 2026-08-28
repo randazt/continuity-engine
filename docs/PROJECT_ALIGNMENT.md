@@ -179,7 +179,7 @@ Demonstrate a complete coherent product workflow rather than a collection of AI 
 
 Show one creator starting with an episode or production idea.
 
-The agent retrieves production memory through ClickHouse MCP, supports `BRAINSTORM` and `REFINE`, produces a `FINALIZE STORYBOARD` candidate for creator approval, asks the creator for any consequential decision, and records resulting production knowledge through cross-cutting production memory and audit behavior.
+The agent retrieves production memory through ClickHouse MCP, supports `BRAINSTORM` and `REFINE`, produces a `FINALIZE STORYBOARD` candidate for creator approval, asks the creator for any consequential decision, prepares generation handoff instructions, supports governed `QUALITY CONTROL`, produces a `POST PRODUCTION` editing package for creator-operated external editing, and prepares a `PUBLISH` package for creator approval and manual posting.
 
 ## Completed Runtime Checkpoint
 

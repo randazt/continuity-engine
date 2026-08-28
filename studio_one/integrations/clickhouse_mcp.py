@@ -103,16 +103,16 @@ SELECT
   toString(approved_decision_id) AS approved_decision_id,
   production_constraints,
   initial_creative_intent
-FROM `{database}`.`projects`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
+FROM `{database}`.`projects` AS p
+WHERE p.project_id = {_uuid_literal(project_id, "project_id")}
 LIMIT 1
 """.strip()
 
 
 def _review_query(project_id: str, review_id: str | None, database: str) -> str:
-    where = [f"project_id = {_uuid_literal(project_id, 'project_id')}"]
+    where = [f"rq.project_id = {_uuid_literal(project_id, 'project_id')}"]
     if review_id:
-        where.append(f"review_id = {_uuid_literal(review_id, 'review_id')}")
+        where.append(f"rq.review_id = {_uuid_literal(review_id, 'review_id')}")
 
     return f"""
 SELECT
@@ -143,7 +143,7 @@ SELECT
   proposed_state_change,
   recommendation_version,
   toString(supersedes_review_id) AS supersedes_review_id
-FROM `{database}`.`review_queue`
+FROM `{database}`.`review_queue` AS rq
 WHERE {" AND ".join(where)}
 ORDER BY created_at DESC, review_id
 LIMIT 1
@@ -156,11 +156,11 @@ def _decision_query(
     decision_id: str | None,
     database: str,
 ) -> str:
-    where = [f"project_id = {_uuid_literal(project_id, 'project_id')}"]
+    where = [f"dl.project_id = {_uuid_literal(project_id, 'project_id')}"]
     if review_id:
-        where.append(f"review_id = {_uuid_literal(review_id, 'review_id')}")
+        where.append(f"dl.review_id = {_uuid_literal(review_id, 'review_id')}")
     if decision_id:
-        where.append(f"decision_id = {_uuid_literal(decision_id, 'decision_id')}")
+        where.append(f"dl.decision_id = {_uuid_literal(decision_id, 'decision_id')}")
 
     return f"""
 SELECT
@@ -182,18 +182,46 @@ SELECT
   affected_table,
   affected_state_version,
   resulting_state_version
-FROM `{database}`.`decision_log`
+FROM `{database}`.`decision_log` AS dl
 WHERE {" AND ".join(where)}
 ORDER BY decided_at DESC, decision_id
 LIMIT 1
 """.strip()
 
 
+def _project_decisions_query(project_id: str, database: str) -> str:
+    return f"""
+SELECT
+  toString(decision_id) AS decision_id,
+  toString(project_id) AS project_id,
+  toString(review_id) AS review_id,
+  toString(asset_id) AS asset_id,
+  decision,
+  decided_by,
+  decision_reason,
+  previous_state,
+  resulting_state,
+  agent_recommendation,
+  agent_confidence,
+  source_reference,
+  toString(decided_at) AS decided_at,
+  authority_level,
+  reviewer_identity_source,
+  affected_table,
+  affected_state_version,
+  resulting_state_version
+FROM `{database}`.`decision_log` AS dl
+WHERE dl.project_id = {_uuid_literal(project_id, "project_id")}
+ORDER BY decided_at DESC, decision_id
+LIMIT 50
+""".strip()
+
+
 def _assets_count_query(project_id: str, database: str) -> str:
     return f"""
 SELECT count() AS assets_count
-FROM `{database}`.`assets`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
+FROM `{database}`.`assets` AS a
+WHERE a.project_id = {_uuid_literal(project_id, "project_id")}
 """.strip()
 
 
@@ -217,9 +245,14 @@ SELECT
   state_version,
   toString(approved_decision_id) AS approved_decision_id,
   toString(reuse_source_asset_id) AS reuse_source_asset_id,
-  reuse_relationship
-FROM `{database}`.`assets`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
+  reuse_relationship,
+  toString(source_generation_package_id) AS source_generation_package_id,
+  source_generation_package_version,
+  toString(external_asset_candidate_id) AS external_asset_candidate_id,
+  external_asset_reference,
+  external_asset_metadata_json
+FROM `{database}`.`assets` AS a
+WHERE a.project_id = {_uuid_literal(project_id, "project_id")}
 ORDER BY asset_type, name, asset_id
 LIMIT 200
 """.strip()
@@ -251,8 +284,8 @@ SELECT
   toString(approved_at) AS approved_at,
   toString(created_at) AS created_at,
   toString(supersedes_storyboard_id) AS supersedes_storyboard_id
-FROM `{database}`.`storyboards`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
+FROM `{database}`.`storyboards` AS s
+WHERE s.project_id = {_uuid_literal(project_id, "project_id")}
   AND status = 'approved'
   AND approval_status = 'approved'
   AND authority_level = 'approved_production_state'
@@ -294,10 +327,10 @@ SELECT
   toString(approved_at) AS approved_at,
   toString(created_at) AS created_at,
   toString(supersedes_storyboard_id) AS supersedes_storyboard_id
-FROM `{database}`.`storyboards`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
-  AND storyboard_id = {_uuid_literal(approved_storyboard_id, "approved_storyboard_id")}
-  AND storyboard_version = {int(approved_storyboard_version)}
+FROM `{database}`.`storyboards` AS s
+WHERE s.project_id = {_uuid_literal(project_id, "project_id")}
+  AND s.storyboard_id = {_uuid_literal(approved_storyboard_id, "approved_storyboard_id")}
+  AND s.storyboard_version = {int(approved_storyboard_version)}
   AND status = 'approved'
   AND approval_status = 'approved'
   AND authority_level = 'approved_production_state'
@@ -335,10 +368,10 @@ SELECT
   created_by,
   toString(created_at) AS created_at,
   toString(supersedes_generation_package_id) AS supersedes_generation_package_id
-FROM `{database}`.`generation_packages`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
-  AND generation_package_id = {_uuid_literal(generation_package_id, "generation_package_id")}
-  AND package_version = {int(package_version)}
+FROM `{database}`.`generation_packages` AS gp
+WHERE gp.project_id = {_uuid_literal(project_id, "project_id")}
+  AND gp.generation_package_id = {_uuid_literal(generation_package_id, "generation_package_id")}
+  AND gp.package_version = {int(package_version)}
   AND status = 'instructions_for_creator'
   AND authority_level = 'production_instruction'
 LIMIT 1
@@ -372,13 +405,100 @@ SELECT
   toString(submitted_at) AS submitted_at,
   toString(supersedes_external_asset_candidate_id) AS supersedes_external_asset_candidate_id,
   toString(retry_of_external_asset_candidate_id) AS retry_of_external_asset_candidate_id
-FROM `{database}`.`external_asset_intake`
-WHERE project_id = {_uuid_literal(project_id, "project_id")}
-  AND external_asset_candidate_id = {_uuid_literal(external_asset_candidate_id, "external_asset_candidate_id")}
+FROM `{database}`.`external_asset_intake` AS e
+WHERE e.project_id = {_uuid_literal(project_id, "project_id")}
+  AND e.external_asset_candidate_id = {_uuid_literal(external_asset_candidate_id, "external_asset_candidate_id")}
   AND intake_status = 'submitted_for_qc'
   AND qc_status = 'pending_qc'
   AND authority_level = 'external_asset_candidate'
 LIMIT 1
+""".strip()
+
+
+def _approved_assets_for_storyboard_query(project_id: str, database: str) -> str:
+    return f"""
+SELECT
+  toString(a.asset_id) AS asset_id,
+  toString(a.project_id) AS project_id,
+  a.asset_type AS asset_type,
+  a.name AS name,
+  a.description AS description,
+  a.continuity_status AS continuity_status,
+  a.canon_version AS canon_version,
+  a.source_reference AS source_reference,
+  toString(a.created_at) AS created_at,
+  toString(a.updated_at) AS updated_at,
+  a.authority_level AS authority_level,
+  a.authoritative_source AS authoritative_source,
+  a.source_version AS source_version,
+  a.approval_status AS approval_status,
+  a.state_version AS state_version,
+  toString(a.approved_decision_id) AS approved_decision_id,
+  toString(a.reuse_source_asset_id) AS reuse_source_asset_id,
+  a.reuse_relationship AS reuse_relationship,
+  toString(a.source_generation_package_id) AS source_generation_package_id,
+  a.source_generation_package_version AS source_generation_package_version,
+  toString(a.external_asset_candidate_id) AS external_asset_candidate_id,
+  a.external_asset_reference AS external_asset_reference,
+  a.external_asset_metadata_json AS external_asset_metadata_json,
+  toString(i.approved_storyboard_id) AS approved_storyboard_id,
+  i.approved_storyboard_version AS approved_storyboard_version,
+  i.storyboard_panel_shot_reference AS storyboard_panel_shot_reference,
+  i.creator_supplied_metadata_json AS creator_supplied_metadata_json,
+  i.evidence_references AS candidate_evidence_references,
+  i.submitted_by AS candidate_submitted_by,
+  toString(i.submitted_at) AS candidate_submitted_at,
+  p.package_type AS generation_package_type,
+  p.package_json AS generation_package_json,
+  p.evidence_references AS generation_package_evidence_references
+FROM `{database}`.`assets` AS a
+LEFT JOIN `{database}`.`external_asset_intake` AS i
+  ON a.project_id = i.project_id
+  AND a.external_asset_candidate_id = i.external_asset_candidate_id
+LEFT JOIN `{database}`.`generation_packages` AS p
+  ON a.project_id = p.project_id
+  AND a.source_generation_package_id = p.generation_package_id
+  AND a.source_generation_package_version = p.package_version
+WHERE a.project_id = {_uuid_literal(project_id, "project_id")}
+  AND a.approval_status = 'approved'
+  AND a.authority_level = 'approved_production_state'
+ORDER BY i.storyboard_panel_shot_reference, a.asset_type, a.name, a.asset_id
+LIMIT 500
+""".strip()
+
+
+def _unresolved_qc_issues_query(project_id: str, database: str) -> str:
+    return f"""
+SELECT
+  toString(external_asset_candidate_id) AS external_asset_candidate_id,
+  toString(project_id) AS project_id,
+  toString(source_generation_package_id) AS source_generation_package_id,
+  source_generation_package_version,
+  toString(approved_storyboard_id) AS approved_storyboard_id,
+  approved_storyboard_version,
+  storyboard_panel_shot_reference,
+  asset_type,
+  external_asset_reference,
+  intake_status,
+  qc_status,
+  authority_level,
+  source_reference,
+  source_version,
+  evidence_references,
+  submitted_by,
+  toString(submitted_at) AS submitted_at,
+  toString(supersedes_external_asset_candidate_id) AS supersedes_external_asset_candidate_id,
+  toString(retry_of_external_asset_candidate_id) AS retry_of_external_asset_candidate_id
+FROM `{database}`.`external_asset_intake` AS e
+WHERE e.project_id = {_uuid_literal(project_id, "project_id")}
+  AND intake_status != 'promoted_to_assets'
+  AND qc_status IN (
+    'pending_qc',
+    'qc_review_pending_human_decision',
+    'needs_revision'
+  )
+ORDER BY submitted_at DESC, external_asset_candidate_id
+LIMIT 200
 """.strip()
 
 
@@ -422,6 +542,20 @@ def _relevant_storyboard_panel(
         if panel_reference and panel_reference == storyboard_reference:
             return panel
     return None
+
+
+def _storyboard_panels(storyboard: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not storyboard:
+        return []
+    raw_storyboard = storyboard.get("storyboard_json") or ""
+    try:
+        storyboard_payload = json.loads(raw_storyboard)
+    except json.JSONDecodeError:
+        return []
+    panels = storyboard_payload.get("panels") or []
+    if not isinstance(panels, list):
+        return []
+    return [panel for panel in panels if isinstance(panel, dict)]
 
 
 def _nullable_uuid_value(value: Any) -> str | None:
@@ -747,6 +881,250 @@ async def retrieve_qc_memory_bundle(
             ),
             "external_asset_candidate": candidate,
             "assets": _rows(assets_inventory_payload),
+            "assets_count": int(
+                _required_single_row(assets_payload, "assets count")["assets_count"]
+            ),
+        },
+    }
+
+
+async def retrieve_post_production_memory_bundle(
+    project_id: str,
+    config: StudioOneConfig | None = None,
+) -> dict[str, Any]:
+    """Retrieve POST PRODUCTION context through official mcp-clickhouse."""
+    runtime_config = config or StudioOneConfig.from_env()
+    secret_value = get_clickhouse_password(runtime_config)
+
+    child_env = {
+        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
+        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
+        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
+        "CLICKHOUSE_PASSWORD": secret_value,
+        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
+        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
+        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
+        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
+        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
+        "CLICKHOUSE_ALLOW_DROP": "false",
+        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
+            runtime_config.mcp_query_timeout_seconds
+        ),
+    }
+    params = StdioServerParameters(
+        command=str(mcp_python_executable()),
+        args=["-m", "mcp_clickhouse.main"],
+        env=child_env,
+        cwd=str(repo_root()),
+    )
+
+    query_purposes = [
+        "Retrieve approved project memory by project_id",
+        "Retrieve latest approved storyboard production state",
+        "Retrieve approved production assets and QC provenance",
+        "Retrieve unresolved QC candidates that block editing readiness",
+        "Retrieve relevant creator decision audit history",
+        "Read current project asset count",
+    ]
+
+    with open(os.devnull, "w", encoding="utf-8") as errlog:
+        with anyio.fail_after(120):
+            async with stdio_client(params, errlog=errlog) as (read, write):
+                async with ClientSession(
+                    read,
+                    write,
+                    read_timeout_seconds=timedelta(seconds=100),
+                ) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    project_payload = await _run_query(
+                        session,
+                        _project_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    storyboard_payload = await _run_query(
+                        session,
+                        _latest_approved_storyboard_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    approved_assets_payload = await _run_query(
+                        session,
+                        _approved_assets_for_storyboard_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    unresolved_qc_payload = await _run_query(
+                        session,
+                        _unresolved_qc_issues_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    decisions_payload = await _run_query(
+                        session,
+                        _project_decisions_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    assets_payload = await _run_query(
+                        session,
+                        _assets_count_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+
+    latest_approved_storyboard = _optional_single_row(storyboard_payload)
+    return {
+        "retrieval": {
+            "secret_manager_retrieval_succeeded": True,
+            "mcp_server_initialized": True,
+            "mcp_tools_discovered": [tool.name for tool in tools.tools],
+            "mcp_tool_invoked": "run_query",
+            "mcp_query_purposes": query_purposes,
+            "clickhouse_writes_performed": False,
+        },
+        "production_memory": {
+            "project": _required_single_row(project_payload, "project"),
+            "latest_approved_storyboard": latest_approved_storyboard,
+            "storyboard_panels": _storyboard_panels(latest_approved_storyboard),
+            "approved_assets": _rows(approved_assets_payload),
+            "unresolved_qc_issues": _rows(unresolved_qc_payload),
+            "decision_log_entries": _rows(decisions_payload),
+            "assets_count": int(
+                _required_single_row(assets_payload, "assets count")["assets_count"]
+            ),
+        },
+    }
+
+
+async def retrieve_publish_memory_bundle(
+    project_id: str,
+    config: StudioOneConfig | None = None,
+) -> dict[str, Any]:
+    """Retrieve PUBLISH context through official mcp-clickhouse."""
+    runtime_config = config or StudioOneConfig.from_env()
+    secret_value = get_clickhouse_password(runtime_config)
+
+    child_env = {
+        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
+        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
+        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
+        "CLICKHOUSE_PASSWORD": secret_value,
+        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
+        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
+        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
+        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
+        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
+        "CLICKHOUSE_ALLOW_DROP": "false",
+        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
+            runtime_config.mcp_query_timeout_seconds
+        ),
+    }
+    params = StdioServerParameters(
+        command=str(mcp_python_executable()),
+        args=["-m", "mcp_clickhouse.main"],
+        env=child_env,
+        cwd=str(repo_root()),
+    )
+
+    query_purposes = [
+        "Retrieve approved project context and production constraints by project_id",
+        "Retrieve latest approved storyboard production state",
+        "Retrieve approved production assets and QC provenance",
+        "Retrieve unresolved QC candidates that block publish readiness",
+        "Retrieve relevant creator decision audit history",
+        "Read current project asset count",
+    ]
+
+    with open(os.devnull, "w", encoding="utf-8") as errlog:
+        with anyio.fail_after(120):
+            async with stdio_client(params, errlog=errlog) as (read, write):
+                async with ClientSession(
+                    read,
+                    write,
+                    read_timeout_seconds=timedelta(seconds=100),
+                ) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    project_payload = await _run_query(
+                        session,
+                        _project_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    storyboard_payload = await _run_query(
+                        session,
+                        _latest_approved_storyboard_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    approved_assets_payload = await _run_query(
+                        session,
+                        _approved_assets_for_storyboard_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    unresolved_qc_payload = await _run_query(
+                        session,
+                        _unresolved_qc_issues_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    decisions_payload = await _run_query(
+                        session,
+                        _project_decisions_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+                    assets_payload = await _run_query(
+                        session,
+                        _assets_count_query(
+                            project_id,
+                            runtime_config.clickhouse_database,
+                        ),
+                        secret_value,
+                    )
+
+    latest_approved_storyboard = _optional_single_row(storyboard_payload)
+    return {
+        "retrieval": {
+            "secret_manager_retrieval_succeeded": True,
+            "mcp_server_initialized": True,
+            "mcp_tools_discovered": [tool.name for tool in tools.tools],
+            "mcp_tool_invoked": "run_query",
+            "mcp_query_purposes": query_purposes,
+            "clickhouse_writes_performed": False,
+        },
+        "production_memory": {
+            "project": _required_single_row(project_payload, "project"),
+            "latest_approved_storyboard": latest_approved_storyboard,
+            "storyboard_panels": _storyboard_panels(latest_approved_storyboard),
+            "approved_assets": _rows(approved_assets_payload),
+            "unresolved_qc_issues": _rows(unresolved_qc_payload),
+            "decision_log_entries": _rows(decisions_payload),
             "assets_count": int(
                 _required_single_row(assets_payload, "assets count")["assets_count"]
             ),

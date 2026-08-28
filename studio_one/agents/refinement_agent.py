@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Awaitable, Callable, Literal, TypeVar
 from uuid import uuid4
 
@@ -19,7 +20,9 @@ from pydantic import Field
 
 from studio_one.integrations.clickhouse_mcp import (
     GOOGLE_CLOUD_PROJECT,
+    retrieve_post_production_memory_bundle,
     retrieve_project_memory_bundle,
+    retrieve_publish_memory_bundle,
     retrieve_qc_memory_bundle,
 )
 from studio_one.workflow.stages import StudioOneStage
@@ -59,6 +62,23 @@ QUALITY_CONTROL_GOVERNANCE_BOUNDARY = (
     "QUALITY CONTROL output is an AI recommendation only; creator decision and "
     "controlled application persistence are required before any asset-library "
     "change."
+)
+POST_PRODUCTION_GOVERNANCE_BOUNDARY = (
+    "POST PRODUCTION output is provider-neutral editing instructions for the "
+    "creator's external edit; STUDIO//ONE has not edited, rendered, uploaded, "
+    "published, or marked the production complete."
+)
+PUBLISH_GOVERNANCE_BOUNDARY = (
+    "PUBLISH output is a provider-neutral publishing-prep package for creator "
+    "approval and manual posting; STUDIO//ONE has not authenticated to social "
+    "media, video platforms, websites, or external services, called publishing "
+    "APIs, uploaded media, scheduled content, posted content, or made content "
+    "live."
+)
+GENERIC_PLATFORM_VARIANTS = (
+    "short-form social",
+    "long-form video",
+    "general social post",
 )
 
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
@@ -290,12 +310,190 @@ class QualityControlAssessment(BaseModel):
     non_fabrication_statement: str
 
 
+class ApprovedAssetCoverage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storyboard_reference: str
+    required_asset: str
+    coverage_status: Literal["covered", "missing", "unresolved_qc"]
+    approved_asset_references: list[str]
+    notes: str
+
+
+class PostProductionReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved_storyboard_present: bool
+    required_storyboard_shots_panels: list[str]
+    approved_asset_coverage_per_shot: list[ApprovedAssetCoverage]
+    missing_required_assets: list[str]
+    unresolved_qc_issues: list[str]
+    dialogue_availability: list[str]
+    sound_effects_requirements: list[str]
+    ambience_requirements: list[str]
+    music_requirements: list[str]
+    continuity_concerns: list[str]
+    unresolved_production_issues: list[str]
+    readiness_status: Literal[
+        "ready_for_editing_package",
+        "not_ready_missing_assets",
+        "not_ready_unresolved_qc",
+        "not_ready_other",
+    ]
+    return_to_stage: Literal["", "generate_assets", "quality_control"]
+
+
+class OrderedEditSequenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    panel_shot_number: int = Field(ge=1)
+    approved_asset_references: list[str]
+    intended_duration: str
+    storyboard_purpose: str
+    visual_treatment: str
+    framing_composition_reference: str
+    video_motion_intent: str
+    dialogue: str
+    voice_performance_direction: str
+    sound_effects: list[str]
+    ambience: str
+    music_cue: str
+    transition_into_shot: str
+    transition_out_of_shot: str
+    editorial_movement_camera_notes: str
+    pacing_hold_notes: str
+    continuity_notes: str
+    approved_asset_provenance: list[str]
+
+
+class PostProductionPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    project_id: str
+    approved_storyboard_id: str
+    approved_storyboard_version: int = Field(ge=1)
+    package_status: Literal["instructions_for_creator_edit"]
+    readiness: PostProductionReadiness
+    target_runtime: str
+    creative_narrative_objective: str
+    production_constraints: list[str]
+    ordered_edit_sequence: list[OrderedEditSequenceItem]
+    audio_plan: str
+    music_plan: str
+    continuity_notes: list[str]
+    unresolved_notes: list[str]
+    provenance_references: list[str]
+    governance_boundary: str
+    non_fabrication_statement: str
+
+
+class PublishingReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved_storyboard_present: bool
+    final_edit_context_supplied: bool
+    final_edit_claim_is_creator_supplied: bool
+    unresolved_qc_issues: list[str]
+    missing_required_metadata: list[str]
+    readiness_status: Literal[
+        "ready_for_publish_package",
+        "not_ready_missing_final_edit_context",
+        "not_ready_unresolved_qc",
+        "not_ready_missing_required_metadata",
+    ]
+    return_to_stage: Literal["", "post_production", "quality_control"]
+    notes: list[str]
+
+
+class PublishTextOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str
+    text: str
+    rationale: str
+    source_provenance_references: list[str]
+
+
+class PublishKeywordOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str
+    keywords: list[str]
+    rationale: str
+    source_provenance_references: list[str]
+
+
+class PublishHashtagOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str
+    hashtags: list[str]
+    rationale: str
+    source_provenance_references: list[str]
+
+
+class PlatformCopyOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform_variant: str
+    recommended_title: str
+    short_caption: str
+    long_description: str
+    hashtags: list[str]
+    cta: str
+    seo_terms: list[str]
+    metadata_notes: list[str]
+    source_provenance_references: list[str]
+
+
+class RecommendedPublishOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title_option_id: str
+    caption_option_id: str
+    description_option_id: str
+    hashtag_option_id: str
+    rationale: str
+
+
+class PublishPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    project_id: str
+    approved_storyboard_id: str
+    approved_storyboard_version: int = Field(ge=1)
+    final_edit_reference: str | None = None
+    publishing_readiness: PublishingReadiness
+    title_options: list[PublishTextOption]
+    seo_keyword_options: list[PublishKeywordOption]
+    caption_options: list[PublishTextOption]
+    description_options: list[PublishTextOption]
+    hashtag_options: list[PublishHashtagOption]
+    platform_copy_options: list[PlatformCopyOption]
+    thumbnail_key_art_guidance: list[str]
+    accessibility_caption_notes: list[str]
+    recommended_options: RecommendedPublishOptions | None = None
+    provenance_references: list[str]
+    governance_boundary: str
+    non_fabrication_statement: str
+
+
 class ApprovedStoryboardRequiredError(RuntimeError):
     """Raised when GENERATE ASSETS is requested without approved storyboard state."""
 
 
 class QualityControlContextRequiredError(RuntimeError):
     """Raised when QUALITY CONTROL lacks exact candidate provenance context."""
+
+
+class PostProductionContextRequiredError(RuntimeError):
+    """Raised when POST PRODUCTION lacks approved production context."""
+
+
+class PublishContextRequiredError(RuntimeError):
+    """Raised when PUBLISH lacks approved production context."""
 
 
 def _configure_vertex_environment() -> None:
@@ -390,6 +588,48 @@ Stage behavior:
 - Set non_fabrication_statement exactly to: {NON_FABRICATION_STATEMENT}
 """.strip()
 
+    if stage == StudioOneStage.POST_PRODUCTION:
+        return f"""
+Stage behavior:
+- Prepare a provider-neutral editing package for creator-operated external editing.
+- Use only MCP-retrieved approved production state: project context, latest approved storyboard, approved_assets, unresolved_qc_issues, and decision_log_entries.
+- Fail conceptually if no latest approved storyboard exists; a pending storyboard candidate is insufficient.
+- First produce the structured readiness assessment.
+- Evaluate asset readiness against approved storyboard requirements, not every possible asset type universally.
+- Treat only production_memory.approved_assets as production-ready media.
+- Do not treat generation packages, pending external candidates, rejected candidates, or needs-revision candidates as approved assets.
+- If required assets are missing, set readiness_status to not_ready_missing_assets and return_to_stage to generate_assets.
+- If unresolved QC issues block editing readiness, set readiness_status to not_ready_unresolved_qc and return_to_stage to quality_control.
+- If ready, create ordered_edit_sequence from the approved storyboard order using approved assets only.
+- Include timing, dialogue, voice-performance direction, SFX, ambience, music cues, transitions, editorial movement guidance, pacing, continuity reminders, and approved asset mapping as structured fields.
+- Do not operate an external editor, render video, manipulate timelines, upload media to editing software, publish, or claim the finished production has been edited.
+- Set stage exactly to: {StudioOneStage.POST_PRODUCTION.value}
+- Set package_status exactly to: instructions_for_creator_edit
+- Set governance_boundary exactly to: {POST_PRODUCTION_GOVERNANCE_BOUNDARY}
+- Set non_fabrication_statement exactly to: {NON_FABRICATION_STATEMENT}
+""".strip()
+
+    if stage == StudioOneStage.PUBLISH:
+        return f"""
+Stage behavior:
+- Prepare a provider-neutral PublishPackage for creator approval and manual posting.
+- Use only MCP-retrieved approved production state: project context, production constraints, latest approved storyboard, approved_assets, unresolved_qc_issues, and decision_log_entries, plus creator-supplied final-edit details in the current message.
+- A pending storyboard candidate is insufficient; PUBLISH requires latest approved storyboard production state.
+- Do not require or assume a durable POST PRODUCTION table. Use the request-scoped POST PRODUCTION package only when the caller supplied one in the current request.
+- Do not claim final media has been edited unless the current message explicitly says final_edit_is_complete is true and supplies a nonempty final_edit_reference.
+- If final edit context is missing, set readiness_status to not_ready_missing_final_edit_context and return_to_stage to post_production.
+- If unresolved QC issues exist, set readiness_status to not_ready_unresolved_qc and return_to_stage to quality_control unless missing final-edit context is the blocker being reported.
+- If required publishing metadata cannot be derived from MCP memory or creator-supplied final-edit details, set readiness_status to not_ready_missing_required_metadata and list the missing fields.
+- If ready, set readiness_status to ready_for_publish_package and produce title, SEO keyword, caption, description, hashtag, platform copy, thumbnail/key-art guidance, and accessibility/caption-note options.
+- Use generic platform variants by default: short-form social, long-form video, and general social post.
+- Do not name a specific platform unless the creator explicitly requested it in the current message.
+- All copy is optional recommendation material for creator approval. You may recommend strongest title, caption, description, and hashtag option IDs, but not approve them.
+- Do not authenticate to social media, video platforms, websites, or external services, call publishing APIs, upload media, schedule posts, click publish, post content, claim published, claim scheduled, claim uploaded, claim live, or mutate production state.
+- Set stage exactly to: {StudioOneStage.PUBLISH.value}
+- Set governance_boundary exactly to: {PUBLISH_GOVERNANCE_BOUNDARY}
+- Set non_fabrication_statement exactly to: {NON_FABRICATION_STATEMENT}
+""".strip()
+
     raise ValueError(f"Stage is not implemented: {stage.value}")
 
 
@@ -427,9 +667,12 @@ Global rules:
 - Current creator direction may supplement durable project context, but it does not replace MCP-retrieved project memory.
 - AI recommendations are not approved production state and must be phrased as proposals.
 - Do not invent characters, history, prior canon, assets, locations, QC records, decisions, or constraints.
-- Do not create assets, prepare post-production, publish, or mutate production state from inside the agent.
+- Do not create assets, render/edit video, publish, or mutate production state from inside the agent.
 - Perform QUALITY CONTROL only when the requested stage is quality_control.
+- Prepare POST PRODUCTION editing instructions only when the requested stage is post_production.
+- Prepare PUBLISH package options only when the requested stage is publish.
 - Do not call or choose external image, video, or TTS providers.
+- Do not authenticate to social platforms, call publishing APIs, upload media, schedule posts, click publish, or claim content is live.
 - The current project asset count must remain explicit where relevant.
 
 {_stage_task_instruction(stage)}
@@ -861,6 +1104,357 @@ def _validate_quality_control_assessment(report: dict[str, Any]) -> None:
             raise RuntimeError("QC assessment contained an approval-state value")
 
 
+def _require_post_production_memory(
+    production_memory: dict[str, Any] | None,
+    expected_project_id: str,
+) -> None:
+    if not production_memory:
+        raise PostProductionContextRequiredError(
+            "POST PRODUCTION requires MCP-retrieved production memory"
+        )
+
+    project = production_memory.get("project") or {}
+    if project.get("project_id") != expected_project_id:
+        raise PostProductionContextRequiredError(
+            "retrieved project does not match requested project"
+        )
+
+    storyboard = production_memory.get("latest_approved_storyboard")
+    if not storyboard:
+        raise PostProductionContextRequiredError(
+            "POST PRODUCTION requires a latest approved storyboard"
+        )
+    if storyboard.get("status") != "approved":
+        raise PostProductionContextRequiredError("latest storyboard is not approved")
+    if storyboard.get("approval_status") != "approved":
+        raise PostProductionContextRequiredError(
+            "latest storyboard approval_status is not approved"
+        )
+    if storyboard.get("authority_level") != "approved_production_state":
+        raise PostProductionContextRequiredError(
+            "latest storyboard is not authoritative production state"
+        )
+
+
+def _approved_asset_reference_tokens(asset: dict[str, Any]) -> list[str]:
+    if (
+        asset.get("approval_status") != "approved"
+        or asset.get("authority_level") != "approved_production_state"
+    ):
+        return []
+
+    tokens = [
+        asset.get("asset_id"),
+        asset.get("external_asset_reference"),
+        asset.get("source_reference"),
+    ]
+    return [str(token) for token in tokens if str(token or "").strip()]
+
+
+def _references_approved_asset(
+    reference: str,
+    approved_assets: list[dict[str, Any]],
+) -> bool:
+    reference_text = str(reference or "").strip()
+    if not reference_text:
+        return False
+    for asset in approved_assets:
+        for token in _approved_asset_reference_tokens(asset):
+            if token and token in reference_text:
+                return True
+    return False
+
+
+def _validate_post_production_package(report: dict[str, Any]) -> None:
+    output = PostProductionPackage.model_validate(report["structured_output"])
+    if output.stage != StudioOneStage.POST_PRODUCTION.value:
+        raise RuntimeError("POST PRODUCTION output used the wrong stage")
+    if output.package_status != "instructions_for_creator_edit":
+        raise RuntimeError("POST PRODUCTION output used the wrong package status")
+    if output.governance_boundary != POST_PRODUCTION_GOVERNANCE_BOUNDARY:
+        raise RuntimeError("POST PRODUCTION governance boundary changed")
+    if output.non_fabrication_statement != NON_FABRICATION_STATEMENT:
+        raise RuntimeError("POST PRODUCTION non-fabrication statement changed")
+
+    memory = report.get("production_memory") or {}
+    storyboard = memory.get("latest_approved_storyboard") or {}
+    if output.project_id != storyboard.get("project_id"):
+        raise RuntimeError("POST PRODUCTION project_id does not match storyboard")
+    if output.approved_storyboard_id != storyboard.get("storyboard_id"):
+        raise RuntimeError(
+            "POST PRODUCTION package does not reference the MCP-approved storyboard"
+        )
+    if output.approved_storyboard_version != int(
+        storyboard.get("storyboard_version") or 0
+    ):
+        raise RuntimeError(
+            "POST PRODUCTION package does not reference the approved storyboard version"
+        )
+
+    if output.readiness.approved_storyboard_present is not True:
+        raise RuntimeError("POST PRODUCTION output ignored the approved storyboard")
+
+    if (
+        output.readiness.readiness_status == "ready_for_editing_package"
+        and not output.ordered_edit_sequence
+    ):
+        raise RuntimeError("ready editing package requires ordered edit sequence")
+    if (
+        output.readiness.readiness_status == "ready_for_editing_package"
+        and output.readiness.missing_required_assets
+    ):
+        raise RuntimeError("ready editing package cannot include missing assets")
+    if (
+        output.readiness.readiness_status == "ready_for_editing_package"
+        and output.readiness.unresolved_qc_issues
+    ):
+        raise RuntimeError("ready editing package cannot include unresolved QC issues")
+
+    approved_assets = memory.get("approved_assets") or []
+    for item in output.ordered_edit_sequence:
+        for reference in item.approved_asset_references:
+            if not _references_approved_asset(reference, approved_assets):
+                raise RuntimeError(
+                    "ordered edit sequence referenced non-approved asset state"
+                )
+        for reference in item.approved_asset_provenance:
+            if not _references_approved_asset(reference, approved_assets):
+                raise RuntimeError(
+                    "ordered edit sequence used non-approved asset provenance"
+                )
+
+    prohibited_claims = {
+        "edited_complete",
+        "editing complete",
+        "final edit complete",
+        "rendered final video",
+        "uploaded to editor",
+        "timeline manipulated",
+    }
+    for value in _string_values(output.model_dump()):
+        normalized = value.strip().lower()
+        if any(claim in normalized for claim in prohibited_claims):
+            raise RuntimeError(
+                "POST PRODUCTION package claimed editing, rendering, upload, or publish completion"
+            )
+
+
+def _require_publish_memory(
+    production_memory: dict[str, Any] | None,
+    expected_project_id: str,
+) -> None:
+    if not production_memory:
+        raise PublishContextRequiredError(
+            "PUBLISH requires MCP-retrieved production memory"
+        )
+
+    project = production_memory.get("project") or {}
+    if project.get("project_id") != expected_project_id:
+        raise PublishContextRequiredError(
+            "retrieved project does not match requested project"
+        )
+
+    storyboard = production_memory.get("latest_approved_storyboard")
+    if not storyboard:
+        raise PublishContextRequiredError(
+            "PUBLISH requires a latest approved storyboard"
+        )
+    if storyboard.get("status") != "approved":
+        raise PublishContextRequiredError("latest storyboard is not approved")
+    if storyboard.get("approval_status") != "approved":
+        raise PublishContextRequiredError(
+            "latest storyboard approval_status is not approved"
+        )
+    if storyboard.get("authority_level") != "approved_production_state":
+        raise PublishContextRequiredError(
+            "latest storyboard is not authoritative production state"
+        )
+
+
+def _validate_publish_package(report: dict[str, Any]) -> None:
+    output = PublishPackage.model_validate(report["structured_output"])
+    if output.stage != StudioOneStage.PUBLISH.value:
+        raise RuntimeError("PUBLISH output used the wrong stage")
+    if output.governance_boundary != PUBLISH_GOVERNANCE_BOUNDARY:
+        raise RuntimeError("PUBLISH governance boundary changed")
+    if output.non_fabrication_statement != NON_FABRICATION_STATEMENT:
+        raise RuntimeError("PUBLISH non-fabrication statement changed")
+
+    memory = report.get("production_memory") or {}
+    storyboard = memory.get("latest_approved_storyboard") or {}
+    if output.project_id != storyboard.get("project_id"):
+        raise RuntimeError("PUBLISH project_id does not match storyboard")
+    if output.approved_storyboard_id != storyboard.get("storyboard_id"):
+        raise RuntimeError(
+            "PUBLISH package does not reference the MCP-approved storyboard"
+        )
+    if output.approved_storyboard_version != int(
+        storyboard.get("storyboard_version") or 0
+    ):
+        raise RuntimeError(
+            "PUBLISH package does not reference the approved storyboard version"
+        )
+    if output.publishing_readiness.approved_storyboard_present is not True:
+        raise RuntimeError("PUBLISH output ignored the approved storyboard")
+
+    request_context = report.get("request_context") or {}
+    final_edit_reference = _optional_memory_id(
+        request_context.get("final_edit_reference")
+    )
+    final_edit_is_complete = bool(request_context.get("final_edit_is_complete"))
+    final_edit_context_supplied = bool(final_edit_reference and final_edit_is_complete)
+    if output.final_edit_reference:
+        if output.final_edit_reference != final_edit_reference:
+            raise RuntimeError(
+                "PUBLISH package final_edit_reference was not creator supplied"
+            )
+    if final_edit_context_supplied and output.final_edit_reference != final_edit_reference:
+        raise RuntimeError(
+            "PUBLISH package omitted the creator-supplied final_edit_reference"
+        )
+    if (
+        output.publishing_readiness.final_edit_context_supplied
+        != final_edit_context_supplied
+    ):
+        raise RuntimeError(
+            "PUBLISH readiness final-edit context flag does not match creator input"
+        )
+    if (
+        output.publishing_readiness.final_edit_claim_is_creator_supplied
+        != final_edit_context_supplied
+    ):
+        raise RuntimeError(
+            "PUBLISH readiness claimed edited media without creator confirmation"
+        )
+
+    readiness_status = output.publishing_readiness.readiness_status
+    unresolved_qc = memory.get("unresolved_qc_issues") or []
+    if not final_edit_context_supplied and (
+        readiness_status != "not_ready_missing_final_edit_context"
+    ):
+        raise RuntimeError(
+            "PUBLISH must report missing final-edit context before ready state"
+        )
+    if (
+        final_edit_context_supplied
+        and unresolved_qc
+        and readiness_status == "ready_for_publish_package"
+    ):
+        raise RuntimeError("unresolved QC prevents publish-ready state")
+    if readiness_status == "not_ready_unresolved_qc" and not (
+        unresolved_qc or output.publishing_readiness.unresolved_qc_issues
+    ):
+        raise RuntimeError("PUBLISH reported unresolved QC without QC evidence")
+    if (
+        readiness_status == "not_ready_missing_required_metadata"
+        and not output.publishing_readiness.missing_required_metadata
+    ):
+        raise RuntimeError(
+            "PUBLISH missing metadata status requires missing metadata details"
+        )
+    if (
+        readiness_status == "ready_for_publish_package"
+        and output.publishing_readiness.missing_required_metadata
+    ):
+        raise RuntimeError("ready publish package cannot include missing metadata")
+
+    if readiness_status == "ready_for_publish_package":
+        if not final_edit_context_supplied:
+            raise RuntimeError("ready publish package requires final edit context")
+        if unresolved_qc or output.publishing_readiness.unresolved_qc_issues:
+            raise RuntimeError("ready publish package cannot include unresolved QC")
+        _require_publish_options(output)
+        if output.recommended_options is not None:
+            _validate_recommended_publish_options(output)
+
+    _validate_platform_copy_scope(
+        output.platform_copy_options,
+        request_context.get("requested_platforms") or [],
+    )
+    _validate_no_publish_claims(output.model_dump())
+
+
+def _require_publish_options(output: PublishPackage) -> None:
+    required_collections = {
+        "title_options": output.title_options,
+        "seo_keyword_options": output.seo_keyword_options,
+        "caption_options": output.caption_options,
+        "description_options": output.description_options,
+        "hashtag_options": output.hashtag_options,
+        "platform_copy_options": output.platform_copy_options,
+    }
+    missing = [
+        name for name, collection in required_collections.items() if not collection
+    ]
+    if missing:
+        raise RuntimeError(
+            "ready publish package missing option collections: "
+            + ", ".join(sorted(missing))
+        )
+
+
+def _validate_recommended_publish_options(output: PublishPackage) -> None:
+    recommendations = output.recommended_options
+    if recommendations is None:
+        return
+
+    option_ids = {
+        "title": {item.option_id for item in output.title_options},
+        "caption": {item.option_id for item in output.caption_options},
+        "description": {item.option_id for item in output.description_options},
+        "hashtag": {item.option_id for item in output.hashtag_options},
+    }
+    if recommendations.title_option_id not in option_ids["title"]:
+        raise RuntimeError("recommended title option does not exist")
+    if recommendations.caption_option_id not in option_ids["caption"]:
+        raise RuntimeError("recommended caption option does not exist")
+    if recommendations.description_option_id not in option_ids["description"]:
+        raise RuntimeError("recommended description option does not exist")
+    if recommendations.hashtag_option_id not in option_ids["hashtag"]:
+        raise RuntimeError("recommended hashtag option does not exist")
+
+
+def _validate_platform_copy_scope(
+    platform_copy_options: list[PlatformCopyOption],
+    requested_platforms: list[Any],
+) -> None:
+    requested = {
+        str(platform).strip().lower()
+        for platform in requested_platforms
+        if str(platform or "").strip()
+    }
+    generic = {variant.lower() for variant in GENERIC_PLATFORM_VARIANTS}
+    for option in platform_copy_options:
+        platform_variant = option.platform_variant.strip().lower()
+        if not platform_variant:
+            raise RuntimeError("platform copy option requires platform_variant")
+        if platform_variant in generic:
+            continue
+        if platform_variant not in requested:
+            raise RuntimeError(
+                "PUBLISH output named a platform the creator did not request"
+            )
+
+
+def _validate_no_publish_claims(value: Any) -> None:
+    claim_patterns = (
+        r"\b(has been|was|is|successfully|already)\s+published\b",
+        r"\b(has been|was|is|successfully|already)\s+posted\b",
+        r"\b(has been|was|is|successfully|already)\s+scheduled\b",
+        r"\b(has been|was|is|successfully|already)\s+uploaded\b",
+        r"\b(content|video|post|media)\s+(is|was|has been)\s+live\b",
+        r"\b(published|posted|scheduled|uploaded)\s+(to|on)\b",
+        r"\bstudio//one\s+(published|posted|scheduled|uploaded|authenticated)\b",
+        r"\bclick(ed)?\s+publish\b",
+    )
+    for text in _string_values(value):
+        normalized = text.strip().lower()
+        if any(re.search(pattern, normalized) for pattern in claim_patterns):
+            raise RuntimeError(
+                "PUBLISH package claimed content was published, posted, uploaded, scheduled, or live"
+            )
+
+
 def _optional_memory_id(value: Any) -> str | None:
     if value is None:
         return None
@@ -1018,6 +1612,124 @@ async def run_quality_control_agent(
             "review_queue_rows_created_by_agent": 0,
             "asset_rows_created_by_agent": 0,
             "gemini_can_approve_or_promote_asset": False,
+        }
+    )
+    return report
+
+
+async def run_post_production_agent(project_id: str) -> dict[str, Any]:
+    """Run POST PRODUCTION to prepare request-scoped editing instructions."""
+    if not project_id.strip():
+        raise ValueError("project_id is required")
+
+    async def retrieve_post_production_stage_memory() -> dict[str, Any]:
+        return await retrieve_post_production_memory_bundle(project_id=project_id)
+
+    preflight = await retrieve_post_production_stage_memory()
+    _require_post_production_memory(preflight.get("production_memory"), project_id)
+
+    report = await _run_stage_agent(
+        project_id=project_id,
+        stage=StudioOneStage.POST_PRODUCTION,
+        output_schema=PostProductionPackage,
+        user_message_text=(
+            "Prepare the POST PRODUCTION editing package from MCP-retrieved "
+            "approved storyboard, approved assets, QC provenance, and creator "
+            "decision history. Do not edit, render, upload, publish, or mutate "
+            "production state."
+        ),
+        memory_retriever=retrieve_post_production_stage_memory,
+    )
+    _require_post_production_memory(report.get("production_memory"), project_id)
+    _validate_post_production_package(report)
+    report["validation"].update(
+        {
+            "approved_storyboard_required": True,
+            "approved_assets_only": True,
+            "agent_memory_retrieval_path": "official_mcp_clickhouse",
+            "post_production_package_persistence": "request_scoped",
+            "external_editor_operated": False,
+            "video_rendered": False,
+            "timeline_manipulated": False,
+            "editing_software_upload_performed": False,
+            "publish_performed": False,
+            "clickhouse_writes_performed": False,
+        }
+    )
+    return report
+
+
+async def run_publish_agent(
+    project_id: str,
+    final_edit_reference: str | None = None,
+    final_edit_is_complete: bool = False,
+    final_edit_notes: str = "",
+    required_metadata: dict[str, Any] | None = None,
+    requested_platforms: list[str] | None = None,
+    post_production_package: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run PUBLISH to prepare a request-scoped creator publishing package."""
+    if not project_id.strip():
+        raise ValueError("project_id is required")
+
+    async def retrieve_publish_stage_memory() -> dict[str, Any]:
+        return await retrieve_publish_memory_bundle(project_id=project_id)
+
+    preflight = await retrieve_publish_stage_memory()
+    _require_publish_memory(preflight.get("production_memory"), project_id)
+
+    request_context = {
+        "final_edit_reference": final_edit_reference.strip()
+        if final_edit_reference
+        else None,
+        "final_edit_is_complete": bool(final_edit_is_complete),
+        "final_edit_notes": final_edit_notes.strip(),
+        "required_metadata": required_metadata or {},
+        "requested_platforms": [
+            platform.strip()
+            for platform in requested_platforms or []
+            if platform.strip()
+        ],
+        "post_production_package_supplied": post_production_package is not None,
+    }
+    request_context_text = json.dumps(
+        {
+            **request_context,
+            "post_production_package": post_production_package,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+    report = await _run_stage_agent(
+        project_id=project_id,
+        stage=StudioOneStage.PUBLISH,
+        output_schema=PublishPackage,
+        user_message_text=(
+            "Prepare the PUBLISH package from MCP-retrieved approved production "
+            "state and this request-scoped creator context. Do not authenticate, "
+            "call publishing APIs, upload, schedule, post, claim live status, or "
+            "mutate production state.\n"
+            f"Request-scoped creator context: {request_context_text}"
+        ),
+        memory_retriever=retrieve_publish_stage_memory,
+    )
+    report["request_context"] = request_context
+    _require_publish_memory(report.get("production_memory"), project_id)
+    _validate_publish_package(report)
+    report["validation"].update(
+        {
+            "approved_storyboard_required": True,
+            "agent_memory_retrieval_path": "official_mcp_clickhouse",
+            "publish_package_persistence": "request_scoped",
+            "post_production_package_persistence_required": False,
+            "external_publishing_api_called": False,
+            "social_platform_auth_performed": False,
+            "media_upload_performed": False,
+            "content_scheduled": False,
+            "content_published": False,
+            "clickhouse_writes_performed": False,
+            "non_google_ai_runtime_integration_added": False,
         }
     )
     return report
