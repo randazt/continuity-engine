@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from studio_one.config import StudioOneConfig
 from studio_one.integrations.clickhouse_mcp import (
-    GOOGLE_CLOUD_PROJECT,
     retrieve_post_production_memory_bundle,
     retrieve_project_memory_bundle,
     retrieve_publish_memory_bundle,
@@ -27,9 +27,6 @@ from studio_one.integrations.clickhouse_mcp import (
 )
 from studio_one.workflow.stages import StudioOneStage
 
-
-GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 RECOMMENDATION_GOVERNANCE_BOUNDARY = (
     "AI output is a non-authoritative recommendation for creator review; it is "
@@ -84,10 +81,21 @@ GENERIC_PLATFORM_VARIANTS = (
 OutputModel = TypeVar("OutputModel", bound=BaseModel)
 
 
+class WorkingTitleOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: str
+    title: str = Field(min_length=1, max_length=90)
+    rationale: str
+    recommendation_authority: Literal["ai_recommendation"]
+    source_provenance_references: list[str]
+
+
 class BrainstormResponse(BaseModel):
     stage: str
     project_id: str
     creator_intent_summary: str
+    working_title_options: list[WorkingTitleOption] = Field(min_length=3, max_length=5)
     retrieved_project_facts: list[str] = Field(min_length=1, max_length=8)
     retrieved_production_constraints: list[str] = Field(min_length=1, max_length=8)
     concept_directions: list[str] = Field(min_length=2, max_length=6)
@@ -496,10 +504,14 @@ class PublishContextRequiredError(RuntimeError):
     """Raised when PUBLISH lacks approved production context."""
 
 
-def _configure_vertex_environment() -> None:
+def _configure_vertex_environment(runtime_config: StudioOneConfig) -> None:
     os.environ.setdefault("GOOGLE_GENAI_USE_ENTERPRISE", "true")
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GOOGLE_CLOUD_PROJECT)
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GOOGLE_CLOUD_LOCATION)
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", runtime_config.google_cloud_project)
+    os.environ.setdefault(
+        "GOOGLE_CLOUD_LOCATION",
+        runtime_config.google_cloud_location,
+    )
 
 
 def _project_context_lines(project_id: str, stage: StudioOneStage) -> list[str]:
@@ -514,6 +526,10 @@ def _stage_task_instruction(stage: StudioOneStage) -> str:
         return f"""
 Stage behavior:
 - Start from project.initial_creative_intent retrieved through MCP.
+- Do not require project.title. If it is empty, treat it as: working title not yet selected.
+- Produce working_title_options with 3 to 5 concise title recommendations derived from project.initial_creative_intent and MCP-retrieved production memory.
+- Every working_title_options item must set recommendation_authority exactly to: ai_recommendation.
+- Working title options are non-authoritative AI recommendations only; do not claim a title has been selected, approved, or persisted.
 - Summarize creator intent without treating it as canon.
 - Identify retrieved project facts and production constraints separately.
 - Propose multiple concept directions and implications.
@@ -638,11 +654,13 @@ def build_stage_agent(
     stage: StudioOneStage,
     output_schema: type[OutputModel],
     memory_retriever: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+    runtime_config: StudioOneConfig | None = None,
 ) -> LlmAgent:
     if not project_id:
         raise ValueError("project_id is required")
 
-    _configure_vertex_environment()
+    runtime_config = runtime_config or StudioOneConfig.from_env()
+    _configure_vertex_environment(runtime_config)
 
     async def retrieve_stage_memory() -> dict[str, Any]:
         """Retrieve project memory through official mcp-clickhouse."""
@@ -688,11 +706,11 @@ by the provided output schema. Keep values concise and do not include markdown.
             "ClickHouse production memory."
         ),
         model=Gemini(
-            model=GEMINI_MODEL,
+            model=runtime_config.gemini_model,
             client_kwargs={
                 "vertexai": True,
-                "project": GOOGLE_CLOUD_PROJECT,
-                "location": GOOGLE_CLOUD_LOCATION,
+                "project": runtime_config.google_cloud_project,
+                "location": runtime_config.google_cloud_location,
             },
         ),
         instruction=instruction,
@@ -777,11 +795,13 @@ async def _run_stage_agent(
     if not project_id:
         raise ValueError("project_id is required")
 
+    runtime_config = StudioOneConfig.from_env()
     agent = build_stage_agent(
         project_id,
         stage,
         output_schema,
         memory_retriever=memory_retriever,
+        runtime_config=runtime_config,
     )
     session_service = InMemorySessionService()
     app_name = "studio_one"
@@ -857,8 +877,8 @@ async def _run_stage_agent(
         "runtime": {
             "adk_mechanism": "google.adk LlmAgent + Runner + FunctionTool",
             "agent_name": agent.name,
-            "gemini_model_used": GEMINI_MODEL,
-            "google_cloud_location": GOOGLE_CLOUD_LOCATION,
+            "gemini_model_used": runtime_config.gemini_model,
+            "google_cloud_location": runtime_config.google_cloud_location,
             "adk_tool_calls": tool_calls,
             "adk_tool_responses": tool_responses,
             "mcp_retrieval_evidence": mcp_evidence,
@@ -916,6 +936,19 @@ def _validate_generate_assets_package(report: dict[str, Any]) -> None:
     existing_assets = memory.get("assets") or []
     if not existing_assets and output.reusable_existing_assets:
         raise RuntimeError("reusable assets were fabricated from empty asset inventory")
+
+
+def _validate_brainstorm_response(report: dict[str, Any]) -> None:
+    output = BrainstormResponse.model_validate(report["structured_output"])
+    if output.stage != StudioOneStage.BRAINSTORM.value:
+        raise RuntimeError("BRAINSTORM output used the wrong stage")
+    if output.governance_boundary != RECOMMENDATION_GOVERNANCE_BOUNDARY:
+        raise RuntimeError("BRAINSTORM governance boundary changed")
+    if output.non_fabrication_statement != NON_FABRICATION_STATEMENT:
+        raise RuntimeError("BRAINSTORM non-fabrication statement changed")
+    for option in output.working_title_options:
+        if option.recommendation_authority != "ai_recommendation":
+            raise RuntimeError("working title option is not an AI recommendation")
 
 
 def _require_quality_control_memory(
@@ -1482,15 +1515,25 @@ def _string_values(value: Any) -> list[str]:
 
 async def run_brainstorm_agent(project_id: str) -> dict[str, Any]:
     """Run BRAINSTORM from MCP-retrieved initial creative intent."""
-    return await _run_stage_agent(
+    report = await _run_stage_agent(
         project_id=project_id,
         stage=StudioOneStage.BRAINSTORM,
         output_schema=BrainstormResponse,
         user_message_text=(
             "Begin BRAINSTORM from the MCP-retrieved initial creative intent "
-            "and project memory."
+            "and project memory. Project title is not required; provide "
+            "non-authoritative working_title_options only."
         ),
     )
+    _validate_brainstorm_response(report)
+    report["validation"].update(
+        {
+            "working_title_options_are_ai_recommendations": True,
+            "working_title_selected_by_agent": False,
+            "title_persisted_by_agent": False,
+        }
+    )
+    return report
 
 
 async def run_refine_agent(

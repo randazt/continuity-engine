@@ -11,6 +11,8 @@ from .project_service import FinalizeStoryboardResult
 from .project_service import ProjectService
 from .project_service import RefineProjectRequest
 from .project_service import RefineProjectResult
+from .project_service import WorkingTitleSelectionRequest
+from .project_service import WorkingTitleSelectionResult
 from .project_service import build_project_service
 from .post_production_service import PostProductionRequest
 from .post_production_service import PostProductionResult
@@ -61,6 +63,8 @@ __all__ = [
     "RefineProjectResult",
     "StoryboardService",
     "SubmitStoryboardCandidateReviewRequest",
+    "WorkingTitleSelectionRequest",
+    "WorkingTitleSelectionResult",
     "build_external_asset_intake_service",
     "build_generate_assets_service",
     "build_post_production_service",

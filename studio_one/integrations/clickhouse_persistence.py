@@ -214,8 +214,8 @@ STORYBOARD_DECISION_VALUES = {
 
 @dataclass(frozen=True)
 class ProjectCreateRecord:
-    title: str
     initial_creative_intent: str
+    title: str = ""
     production_constraints: str = ""
     source_reference: str = "creator_project_creation_request"
     source_version: str = ""
@@ -236,6 +236,18 @@ class CreatedProjectRecord:
     approved_decision_id: None
     production_constraints: str
     initial_creative_intent: str
+
+
+@dataclass(frozen=True)
+class ProjectTitleUpdateRecord:
+    project_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class UpdatedProjectTitleRecord:
+    project_id: str
+    title: str
 
 
 @dataclass(frozen=True)
@@ -455,7 +467,7 @@ def build_clickhouse_client(
 
 
 class ClickHouseProjectPersistence:
-    """Application-owned writer for new project records."""
+    """Application-owned writes for project intake and working metadata."""
 
     def __init__(
         self,
@@ -466,16 +478,13 @@ class ClickHouseProjectPersistence:
         self._client = client or build_clickhouse_client(self._config)
 
     def create_project(self, record: ProjectCreateRecord) -> CreatedProjectRecord:
-        title = record.title.strip()
-        if not title:
-            raise ValueError("project title is required")
         initial_creative_intent = record.initial_creative_intent.strip()
         if not initial_creative_intent:
             raise ValueError("initial_creative_intent is required")
 
         created = CreatedProjectRecord(
             project_id=str(uuid4()),
-            title=title,
+            title="",
             status="active_in_development",
             current_canon_version="",
             authority_level="creator_supplied_project_context",
@@ -512,6 +521,24 @@ class ClickHouseProjectPersistence:
             database=self._config.clickhouse_database,
         )
         return created
+
+    def update_project_title(
+        self,
+        record: ProjectTitleUpdateRecord,
+    ) -> UpdatedProjectTitleRecord:
+        project_id = str(_required_uuid(record.project_id, "project_id"))
+        title = record.title.strip()
+        if not title:
+            raise ValueError("working title is required")
+
+        command = f"""
+ALTER TABLE `{self._config.clickhouse_database}`.`projects`
+UPDATE title = {_sql_string(title)}
+WHERE project_id = {_uuid_literal(project_id, "project_id")}
+SETTINGS mutations_sync = 2
+""".strip()
+        self._client.command(command)
+        return UpdatedProjectTitleRecord(project_id=project_id, title=title)
 
 
 class ClickHouseStoryboardPersistence:

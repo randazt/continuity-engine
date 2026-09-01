@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from pydantic import BaseModel
 from pydantic import Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from studio_one.config import MissingRuntimeConfigError
+from studio_one.config import StudioOneConfig
 from studio_one.agents.refinement_agent import (
     ApprovedStoryboardRequiredError,
     PostProductionContextRequiredError,
@@ -47,6 +50,7 @@ from studio_one.services.project_service import (
     FinalizeStoryboardRequest,
     ProjectService,
     RefineProjectRequest,
+    WorkingTitleSelectionRequest,
     build_project_service,
 )
 from studio_one.services.publish_service import (
@@ -101,6 +105,10 @@ class StoryboardBody(BaseModel):
 
 class BrainstormBody(BaseModel):
     pass
+
+
+class WorkingTitleBody(BaseModel):
+    title: str = Field(min_length=1)
 
 
 class QualityControlBody(BaseModel):
@@ -160,6 +168,24 @@ def create_app(
             400,
         )
 
+    @app.exception_handler(MissingRuntimeConfigError)
+    async def missing_config_handler(
+        _request: Request,
+        exc: MissingRuntimeConfigError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "type": "missing_runtime_configuration",
+                    "message": (
+                        "Missing required runtime environment variables."
+                    ),
+                    "missing_environment_variables": list(exc.missing),
+                }
+            },
+        )
+
     async def workflow_gate_handler(
         _request: Request,
         exc: Exception,
@@ -217,6 +243,64 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         return HTMLResponse(INDEX_HTML.read_text(encoding="utf-8"))
+
+    @app.get("/health")
+    async def health() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "service": "studio_one",
+            "checks": {
+                "process": "ok",
+                "workflow_stage_count": len(CANONICAL_STAGE_IDENTIFIERS),
+            },
+        }
+
+    @app.get("/ready")
+    async def ready() -> JSONResponse:
+        checks: dict[str, Any] = {
+            "runtime_configuration": "ok",
+            "mcp_clickhouse_package": "available"
+            if _mcp_clickhouse_available()
+            else "missing",
+            "secret_manager": "not_checked",
+            "gemini": "not_checked",
+            "clickhouse": "not_checked",
+        }
+        missing_environment_variables: list[str] = []
+        status_code = 200
+
+        try:
+            StudioOneConfig.from_env()
+        except MissingRuntimeConfigError as exc:
+            checks["runtime_configuration"] = "missing_required_environment"
+            missing_environment_variables = list(exc.missing)
+            status_code = 503
+        except ValueError as exc:
+            checks["runtime_configuration"] = "invalid"
+            status_code = 503
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "status": "not_ready",
+                    "checks": checks,
+                    "message": _safe_message(
+                        str(exc),
+                        fallback="Invalid runtime configuration.",
+                    ),
+                },
+            )
+
+        if checks["mcp_clickhouse_package"] != "available":
+            status_code = 503
+
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ready" if status_code == 200 else "not_ready",
+                "checks": checks,
+                "missing_environment_variables": missing_environment_variables,
+            },
+        )
 
     @app.get("/api/workflow")
     async def workflow() -> dict[str, Any]:
@@ -294,6 +378,20 @@ def create_app(
         _payload: BrainstormBody,
     ) -> dict[str, Any]:
         return await _dependencies(request).brainstorm_runner(project_id=project_id)
+
+    @post_json(app, "/api/projects/{project_id}/working-title")
+    async def select_working_title(
+        request: Request,
+        project_id: str,
+        payload: WorkingTitleBody,
+    ) -> dict[str, Any]:
+        result = _dependencies(request).project_service.select_working_title(
+            WorkingTitleSelectionRequest(
+                project_id=project_id,
+                title=payload.title,
+            )
+        )
+        return result.model_dump()
 
     @post_json(app, "/api/projects/{project_id}/refine")
     async def refine(
@@ -443,6 +541,10 @@ def _dependencies(request: Request) -> StudioOneWebDependencies:
         dependencies = build_web_dependencies()
         request.app.state.studio_one_dependencies = dependencies
     return dependencies
+
+
+def _mcp_clickhouse_available() -> bool:
+    return importlib.util.find_spec("mcp_clickhouse") is not None
 
 
 def summarize_production_memory(bundle: dict[str, Any]) -> dict[str, Any]:

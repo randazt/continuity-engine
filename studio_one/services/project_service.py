@@ -16,13 +16,14 @@ from studio_one.integrations.clickhouse_persistence import (
     ClickHouseProjectPersistence,
     CreatedProjectRecord,
     ProjectCreateRecord,
+    ProjectTitleUpdateRecord,
+    UpdatedProjectTitleRecord,
 )
 from studio_one.workflow.stages import StudioOneStage
 from studio_one.workflow.transitions import require_creator_action_transition
 
 
 class CreateProjectRequest(BaseModel):
-    title: str = Field(min_length=1)
     initial_creative_intent: str = Field(min_length=1)
     production_constraints: str = ""
     source_reference: str = "creator_project_creation_request"
@@ -33,6 +34,22 @@ class CreateProjectAndBrainstormResult(BaseModel):
     project: dict[str, Any]
     stage: str
     brainstorm: dict[str, Any]
+
+
+class WorkingTitleSelectionRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+
+
+class WorkingTitleSelectionResult(BaseModel):
+    project_id: str
+    title: str
+    title_status: str
+    authority_level: str
+    approval_status: str
+    asset_created: bool
+    storyboard_approval_created: bool
+    canon_approval_created: bool
 
 
 class RefineProjectRequest(BaseModel):
@@ -62,6 +79,12 @@ class ProjectWriter(Protocol):
     def create_project(self, record: ProjectCreateRecord) -> CreatedProjectRecord:
         """Persist a project row and return the created record."""
 
+    def update_project_title(
+        self,
+        record: ProjectTitleUpdateRecord,
+    ) -> UpdatedProjectTitleRecord:
+        """Persist creator-selected working title metadata."""
+
 
 BrainstormRunner = Callable[..., Awaitable[dict[str, Any]]]
 RefineRunner = Callable[..., Awaitable[dict[str, Any]]]
@@ -87,7 +110,7 @@ class ProjectService:
     ) -> CreateProjectAndBrainstormResult:
         created_project = self._project_writer.create_project(
             ProjectCreateRecord(
-                title=request.title,
+                title="",
                 initial_creative_intent=request.initial_creative_intent,
                 production_constraints=request.production_constraints,
                 source_reference=request.source_reference,
@@ -103,6 +126,27 @@ class ProjectService:
             project=asdict(created_project),
             stage=StudioOneStage.BRAINSTORM.value,
             brainstorm=brainstorm,
+        )
+
+    def select_working_title(
+        self,
+        request: WorkingTitleSelectionRequest,
+    ) -> WorkingTitleSelectionResult:
+        updated = self._project_writer.update_project_title(
+            ProjectTitleUpdateRecord(
+                project_id=request.project_id,
+                title=request.title,
+            )
+        )
+        return WorkingTitleSelectionResult(
+            project_id=updated.project_id,
+            title=updated.title,
+            title_status="creator_selected_working_title",
+            authority_level="creator_supplied_project_metadata",
+            approval_status="creator_supplied",
+            asset_created=False,
+            storyboard_approval_created=False,
+            canon_approval_created=False,
         )
 
     async def refine_project(

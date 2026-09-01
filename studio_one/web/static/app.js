@@ -19,7 +19,6 @@ const state = {
 
 const dom = {
   projectForm: document.querySelector("#project-form"),
-  projectTitle: document.querySelector("#project-title"),
   projectIntent: document.querySelector("#project-intent"),
   projectConstraints: document.querySelector("#project-constraints"),
   activeProjectTitle: document.querySelector("#active-project-title"),
@@ -79,6 +78,13 @@ function handleDocumentClick(event) {
     return;
   }
 
+  const titleButton = event.target.closest("[data-title-select]");
+  if (titleButton) {
+    const title = titleButton.dataset.titleSelect || "";
+    runWithOutput("Saving working title", () => updateWorkingTitle(title));
+    return;
+  }
+
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) {
     copyText(copyButton.dataset.copy || "");
@@ -88,22 +94,21 @@ function handleDocumentClick(event) {
 async function handleCreateProject(event) {
   event.preventDefault();
   const payload = {
-    title: dom.projectTitle.value.trim(),
     initial_creative_intent: dom.projectIntent.value.trim(),
     production_constraints: dom.projectConstraints.value.trim(),
   };
-  if (!payload.title || !payload.initial_creative_intent) {
-    showToast("Project title and creative intent are required.");
+  if (!payload.initial_creative_intent) {
+    showToast("Initial creative intent is required.");
     return;
   }
 
-  await runWithOutput("Creating project and entering BRAINSTORM", async () => {
+  await runWithOutput("Beginning BRAINSTORM", async () => {
     const result = await api("/api/projects", {
       method: "POST",
       body: JSON.stringify(payload),
     });
     state.projectId = result.project?.project_id || "";
-    state.projectTitle = result.project?.title || payload.title;
+    state.projectTitle = result.project?.title || "";
     state.activeStage = "brainstorm";
     state.latest.brainstorm = result;
     renderProjectHeader();
@@ -115,7 +120,13 @@ async function handleCreateProject(event) {
 }
 
 function renderProjectHeader() {
-  dom.activeProjectTitle.textContent = state.projectTitle || "No project selected";
+  if (!state.projectId) {
+    dom.activeProjectTitle.textContent = "No project selected";
+    return;
+  }
+  dom.activeProjectTitle.textContent = state.projectTitle
+    ? `Working Title: ${state.projectTitle}`
+    : "Working Title: Not selected";
 }
 
 function renderActionPanel() {
@@ -148,6 +159,10 @@ function actionMarkup(stageId) {
       <div class="stack">
         <p class="empty-state">BRAINSTORM retrieves production memory and returns structured creative options for creator direction.</p>
         <button type="button" data-action="brainstorm">Run BRAINSTORM</button>
+        <label>Custom Working Title
+          <input id="custom-working-title" autocomplete="off" />
+        </label>
+        <button type="button" class="secondary" data-action="save-custom-working-title">Save Custom Working Title</button>
       </div>
     `,
     refine: `
@@ -308,6 +323,7 @@ async function runAction(action) {
     "revise-qc": () => decideQualityControl("needs_revision"),
     "reject-qc": () => decideQualityControl("reject"),
     "post-production": runPostProduction,
+    "save-custom-working-title": () => updateWorkingTitle(valueOf("#custom-working-title")),
     publish: runPublish,
   };
   const handler = actions[action];
@@ -321,6 +337,21 @@ async function runBrainstorm() {
     body: JSON.stringify({}),
   });
   state.latest.brainstorm = result;
+  renderOutput(result);
+  await refreshMemory();
+}
+
+async function updateWorkingTitle(title) {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) {
+    throw new Error("Working title is required.");
+  }
+  const result = await api(`/api/projects/${encodeURIComponent(state.projectId)}/working-title`, {
+    method: "POST",
+    body: JSON.stringify({ title: trimmedTitle }),
+  });
+  state.projectTitle = result.title || trimmedTitle;
+  renderProjectHeader();
   renderOutput(result);
   await refreshMemory();
 }
@@ -521,6 +552,7 @@ function resultMarkup(value) {
   }
   const stage = value.stage ? `<span class="pill">${escapeHtml(value.stage)}</span>` : "";
   const copySections = [
+    workingTitleSection(value),
     optionSection("Title Options", value.package?.title_options),
     optionSection("SEO Keyword Options", value.package?.seo_keyword_options),
     optionSection("Caption Options", value.package?.caption_options),
@@ -535,6 +567,33 @@ function resultMarkup(value) {
     <div class="result-card">
       <h3>Raw Structured Response</h3>
       <pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>
+    </div>
+  `;
+}
+
+function workingTitleSection(value) {
+  const structured = value.brainstorm?.structured_output || value.structured_output || {};
+  const options = structured.working_title_options;
+  if (!Array.isArray(options) || !options.length) return "";
+  return `
+    <div class="result-card">
+      <h3>Working Title Options</h3>
+      <div class="result-stack">
+        ${options.map((item) => workingTitleItem(item)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function workingTitleItem(item) {
+  const title = item.title || item.text || "";
+  const rationale = item.rationale || "";
+  return `
+    <div class="copy-item">
+      <div class="pill-row"><span class="pill">AI Recommendation</span></div>
+      <p><strong>${escapeHtml(title)}</strong></p>
+      ${rationale ? `<p>${escapeHtml(rationale)}</p>` : ""}
+      <button type="button" class="secondary" data-title-select="${escapeAttr(title)}">Select Working Title</button>
     </div>
   `;
 }

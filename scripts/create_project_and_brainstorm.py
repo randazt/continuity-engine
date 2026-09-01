@@ -33,7 +33,6 @@ def parse_args() -> argparse.Namespace:
             "official mcp-clickhouse for ADK/Gemini BRAINSTORM."
         ),
     )
-    parser.add_argument("--title", required=True)
     parser.add_argument("--production-constraints", default="")
     parser.add_argument(
         "--source-reference",
@@ -53,7 +52,6 @@ async def main() -> None:
     service = build_project_service()
     result = await service.create_project_and_start_brainstorm(
         CreateProjectRequest(
-            title=args.title,
             production_constraints=args.production_constraints,
             source_reference=args.source_reference,
             source_version=args.source_version,

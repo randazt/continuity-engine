@@ -13,7 +13,9 @@ from studio_one.integrations.clickhouse_persistence import (
     CreatedQualityControlReviewRecord,
     CreatedStoryboardReviewRecord,
     ProjectCreateRecord,
+    ProjectTitleUpdateRecord,
     StoryboardReviewDecisionResult,
+    UpdatedProjectTitleRecord,
 )
 from studio_one.services.project_service import ProjectService
 from studio_one.web.app import StudioOneWebDependencies
@@ -33,6 +35,7 @@ ASSET_ID = "66666666-6666-4666-8666-666666666666"
 class FakeProjectWriter:
     def __init__(self) -> None:
         self.records: list[ProjectCreateRecord] = []
+        self.title_updates: list[ProjectTitleUpdateRecord] = []
 
     def create_project(self, record: ProjectCreateRecord) -> CreatedProjectRecord:
         self.records.append(record)
@@ -50,6 +53,16 @@ class FakeProjectWriter:
             approved_decision_id=None,
             production_constraints=record.production_constraints.strip(),
             initial_creative_intent=record.initial_creative_intent.strip(),
+        )
+
+    def update_project_title(
+        self,
+        record: ProjectTitleUpdateRecord,
+    ) -> UpdatedProjectTitleRecord:
+        self.title_updates.append(record)
+        return UpdatedProjectTitleRecord(
+            project_id=record.project_id,
+            title=record.title.strip(),
         )
 
 
@@ -325,6 +338,35 @@ class FakeBrainstormRunner:
             "stage": "brainstorm",
             "project_id": project_id,
             "structured_output": {
+                "working_title_options": [
+                    {
+                        "option_id": "title-1",
+                        "title": "Memory Thread",
+                        "rationale": "Derived from creator intent.",
+                        "recommendation_authority": "ai_recommendation",
+                        "source_provenance_references": [
+                            "project.initial_creative_intent"
+                        ],
+                    },
+                    {
+                        "option_id": "title-2",
+                        "title": "Studio Echo",
+                        "rationale": "Fits the remembered production context.",
+                        "recommendation_authority": "ai_recommendation",
+                        "source_provenance_references": [
+                            "project.initial_creative_intent"
+                        ],
+                    },
+                    {
+                        "option_id": "title-3",
+                        "title": "First Signal",
+                        "rationale": "Keeps the working title concise.",
+                        "recommendation_authority": "ai_recommendation",
+                        "source_provenance_references": [
+                            "project.initial_creative_intent"
+                        ],
+                    },
+                ],
                 "concept_directions": ["Creator-facing option"],
                 "governance_boundary": "AI recommendation only.",
             },
@@ -440,7 +482,6 @@ def test_project_creation_route_uses_service_and_enters_brainstorm() -> None:
     response = client.post(
         "/api/projects",
         json={
-            "title": "Creator Project",
             "initial_creative_intent": "Create a focused production.",
             "production_constraints": "Use approved material only.",
         },
@@ -454,6 +495,57 @@ def test_project_creation_route_uses_service_and_enters_brainstorm() -> None:
         "official_mcp_clickhouse"
     )
     assert len(writer.records) == 1
+    assert writer.records[0].title == ""
+    assert payload["project"]["title"] == ""
+    assert payload["brainstorm"]["structured_output"]["working_title_options"]
+
+
+def test_project_creation_route_does_not_require_title_before_brainstorm() -> None:
+    client, writer, _, _ = build_client()
+
+    response = client.post(
+        "/api/projects",
+        json={"initial_creative_intent": "Start from intent, then name it."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stage"] == "brainstorm"
+    assert writer.records[0].title == ""
+    assert payload["project"]["title"] == ""
+    options = payload["brainstorm"]["structured_output"]["working_title_options"]
+    assert options[0]["recommendation_authority"] == "ai_recommendation"
+
+
+def test_working_title_route_persists_creator_selected_recommendation() -> None:
+    client, writer, _, _ = build_client()
+
+    response = client.post(
+        f"/api/projects/{PROJECT_ID}/working-title",
+        json={"title": "Memory Thread"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["title"] == "Memory Thread"
+    assert writer.title_updates[0].title == "Memory Thread"
+    assert payload["asset_created"] is False
+    assert payload["storyboard_approval_created"] is False
+    assert payload["canon_approval_created"] is False
+    assert payload["approval_status"] == "creator_supplied"
+
+
+def test_working_title_route_persists_creator_custom_title() -> None:
+    client, writer, _, _ = build_client()
+
+    response = client.post(
+        f"/api/projects/{PROJECT_ID}/working-title",
+        json={"title": "Creator Authored Working Title"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Creator Authored Working Title"
+    assert writer.title_updates[0].title == "Creator Authored Working Title"
 
 
 def test_brainstorm_refine_and_storyboard_routes_delegate_to_backend() -> None:
@@ -716,6 +808,13 @@ def test_frontend_static_assets_are_provider_neutral_and_not_direct_clickhouse()
     assert "password" not in script.lower()
     assert "C:\\Users" not in script
     assert "C:\\Users" not in html
+    assert 'id="project-title"' not in html
+    assert "Begin BRAINSTORM" in html
+    assert "Project title and creative intent are required." not in script
+    assert "working-title" in script
+    assert "AI Recommendation" in script
+    assert "Select Working Title" in script
+    assert "Working Title: Not selected" in script
     assert "letter-spacing: 0" in css
     for label in [
         "BRAINSTORM",

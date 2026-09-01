@@ -19,11 +19,14 @@ from studio_one.integrations.clickhouse_persistence import (
     CreatedProjectRecord,
     PROJECT_COLUMNS,
     ProjectCreateRecord,
+    ProjectTitleUpdateRecord,
+    UpdatedProjectTitleRecord,
 )
 from studio_one.services.project_service import CreateProjectRequest
 from studio_one.services.project_service import FinalizeStoryboardRequest
 from studio_one.services.project_service import ProjectService
 from studio_one.services.project_service import RefineProjectRequest
+from studio_one.services.project_service import WorkingTitleSelectionRequest
 from studio_one.services import project_service
 from studio_one.workflow.stages import CANONICAL_STAGE_IDENTIFIERS
 from studio_one.workflow.stages import IMPLEMENTED_STAGE_IDENTIFIERS
@@ -49,6 +52,7 @@ TEST_CONFIG = StudioOneConfig(
 class FakeInsertClient:
     def __init__(self) -> None:
         self.inserts: list[dict[str, object]] = []
+        self.commands: list[str] = []
 
     def insert(
         self,
@@ -66,13 +70,17 @@ class FakeInsertClient:
             }
         )
 
+    def command(self, command: str) -> None:
+        self.commands.append(command)
+
 
 class FakeProjectWriter:
     def __init__(self) -> None:
         self.records: list[ProjectCreateRecord] = []
+        self.title_updates: list[ProjectTitleUpdateRecord] = []
         self.created = CreatedProjectRecord(
             project_id="11111111-1111-4111-8111-111111111111",
-            title="Creator Project",
+            title="",
             status="active_in_development",
             current_canon_version="",
             authority_level="creator_supplied_project_context",
@@ -90,6 +98,16 @@ class FakeProjectWriter:
         self.records.append(record)
         return self.created
 
+    def update_project_title(
+        self,
+        record: ProjectTitleUpdateRecord,
+    ) -> UpdatedProjectTitleRecord:
+        self.title_updates.append(record)
+        return UpdatedProjectTitleRecord(
+            project_id=record.project_id,
+            title=record.title.strip(),
+        )
+
 
 def fake_stage_report(stage: str, project_id: str) -> dict[str, object]:
     return {
@@ -103,10 +121,10 @@ def fake_stage_report(stage: str, project_id: str) -> dict[str, object]:
             "gemini_can_advance_stage": False,
             "clickhouse_writes_performed": False,
         },
-        "production_memory": {
+            "production_memory": {
             "project": {
                 "project_id": project_id,
-                "title": "Creator Project",
+                "title": "",
                 "production_constraints": "Use creator-approved visual constraints.",
                 "initial_creative_intent": "Brainstorm a focused short-form idea.",
             },
@@ -168,7 +186,6 @@ class ProjectCreationPersistenceTests(unittest.TestCase):
 
         created = persistence.create_project(
             ProjectCreateRecord(
-                title="Creator Project",
                 initial_creative_intent="Brainstorm a focused short-form idea.",
                 production_constraints="Use creator-approved visual constraints.",
                 source_reference="creator_project_creation_request",
@@ -184,7 +201,7 @@ class ProjectCreationPersistenceTests(unittest.TestCase):
 
         row = dict(zip(PROJECT_COLUMNS, insert["data"][0]))
         self.assertEqual(row["project_id"], created.project_id)
-        self.assertEqual(row["title"], "Creator Project")
+        self.assertEqual(row["title"], "")
         self.assertEqual(row["status"], "active_in_development")
         self.assertEqual(row["production_constraints"], "Use creator-approved visual constraints.")
         self.assertEqual(
@@ -203,7 +220,6 @@ class ProjectCreationPersistenceTests(unittest.TestCase):
         persistence = ClickHouseProjectPersistence(client=client, config=TEST_CONFIG)
         persistence.create_project(
             ProjectCreateRecord(
-                title="Creator Project",
                 initial_creative_intent="Brainstorm a focused short-form idea.",
                 production_constraints="",
             )
@@ -215,6 +231,56 @@ class ProjectCreationPersistenceTests(unittest.TestCase):
             row["initial_creative_intent"],
             "Brainstorm a focused short-form idea.",
         )
+
+    def test_project_creation_accepts_empty_initial_title(self) -> None:
+        client = FakeInsertClient()
+        persistence = ClickHouseProjectPersistence(client=client, config=TEST_CONFIG)
+
+        created = persistence.create_project(
+            ProjectCreateRecord(
+                initial_creative_intent="Brainstorm before naming.",
+            )
+        )
+
+        row = dict(zip(PROJECT_COLUMNS, client.inserts[0]["data"][0]))
+        self.assertEqual(created.title, "")
+        self.assertEqual(row["title"], "")
+
+    def test_project_creation_ignores_legacy_supplied_title(self) -> None:
+        client = FakeInsertClient()
+        persistence = ClickHouseProjectPersistence(client=client, config=TEST_CONFIG)
+
+        created = persistence.create_project(
+            ProjectCreateRecord(
+                title="Should Not Persist Before BRAINSTORM",
+                initial_creative_intent="Brainstorm before naming.",
+            )
+        )
+
+        row = dict(zip(PROJECT_COLUMNS, client.inserts[0]["data"][0]))
+        self.assertEqual(created.title, "")
+        self.assertEqual(row["title"], "")
+
+    def test_working_title_update_uses_projects_title_only(self) -> None:
+        client = FakeInsertClient()
+        persistence = ClickHouseProjectPersistence(client=client, config=TEST_CONFIG)
+
+        updated = persistence.update_project_title(
+            ProjectTitleUpdateRecord(
+                project_id="11111111-1111-4111-8111-111111111111",
+                title="Selected Memory Thread",
+            )
+        )
+
+        self.assertEqual(updated.title, "Selected Memory Thread")
+        self.assertEqual(client.inserts, [])
+        self.assertEqual(len(client.commands), 1)
+        command = client.commands[0]
+        self.assertIn("ALTER TABLE `test_db`.`projects`", command)
+        self.assertIn("UPDATE title = 'Selected Memory Thread'", command)
+        self.assertNotIn("assets", command)
+        self.assertNotIn("storyboards", command)
+        self.assertNotIn("decision_log", command)
 
 
 class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -233,13 +299,13 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
 
         result = await service.create_project_and_start_brainstorm(
             CreateProjectRequest(
-                title="Creator Project",
                 production_constraints="Use creator-approved visual constraints.",
                 initial_creative_intent="Brainstorm a focused short-form idea.",
             )
         )
 
         self.assertEqual(len(writer.records), 1)
+        self.assertEqual(writer.records[0].title, "")
         self.assertEqual(
             writer.records[0].production_constraints,
             "Use creator-approved visual constraints.",
@@ -280,12 +346,56 @@ class ProjectServiceTests(unittest.IsolatedAsyncioTestCase):
 
         result = await service.create_project_and_start_brainstorm(
             CreateProjectRequest(
-                title="Creator Project",
                 initial_creative_intent="Brainstorm a focused short-form idea.",
             )
         )
 
         self.assertEqual(result.stage, StudioOneStage.BRAINSTORM.value)
+        self.assertEqual(writer.records[0].title, "")
+
+    async def test_project_creation_accepts_only_initial_creative_intent(self) -> None:
+        writer = FakeProjectWriter()
+
+        async def fake_brainstorm_runner(**kwargs: object) -> dict[str, object]:
+            return fake_stage_report("brainstorm", str(kwargs["project_id"]))
+
+        service = ProjectService(
+            project_writer=writer,
+            brainstorm_runner=fake_brainstorm_runner,
+        )
+
+        result = await service.create_project_and_start_brainstorm(
+            CreateProjectRequest(
+                initial_creative_intent="A memory-led short film about a studio.",
+            )
+        )
+
+        self.assertEqual(result.stage, StudioOneStage.BRAINSTORM.value)
+        self.assertEqual(len(writer.records), 1)
+        self.assertEqual(writer.records[0].title, "")
+        self.assertEqual(writer.records[0].production_constraints, "")
+        self.assertEqual(
+            writer.records[0].initial_creative_intent,
+            "A memory-led short film about a studio.",
+        )
+
+    async def test_creator_can_select_working_title_without_approval_side_effects(self) -> None:
+        writer = FakeProjectWriter()
+        service = ProjectService(project_writer=writer)
+
+        result = service.select_working_title(
+            WorkingTitleSelectionRequest(
+                project_id="11111111-1111-4111-8111-111111111111",
+                title="Selected Memory Thread",
+            )
+        )
+
+        self.assertEqual(result.title, "Selected Memory Thread")
+        self.assertEqual(writer.title_updates[0].title, "Selected Memory Thread")
+        self.assertFalse(result.asset_created)
+        self.assertFalse(result.storyboard_approval_created)
+        self.assertFalse(result.canon_approval_created)
+        self.assertEqual(result.approval_status, "creator_supplied")
 
     async def test_refine_requires_explicit_creator_direction(self) -> None:
         service = ProjectService(project_writer=FakeProjectWriter())
@@ -384,6 +494,7 @@ class AgentContractTests(unittest.TestCase):
         self.assertTrue(
             {
                 "creator_intent_summary",
+                "working_title_options",
                 "retrieved_project_facts",
                 "retrieved_production_constraints",
                 "concept_directions",
@@ -416,7 +527,36 @@ class AgentContractTests(unittest.TestCase):
             stage="brainstorm",
             project_id="11111111-1111-4111-8111-111111111111",
             creator_intent_summary="A concise summary of durable creator intent.",
-            retrieved_project_facts=["Project title was retrieved through MCP."],
+            working_title_options=[
+                {
+                    "option_id": "title-1",
+                    "title": "Memory Thread",
+                    "rationale": "Derived from the creator's stated intent.",
+                    "recommendation_authority": "ai_recommendation",
+                    "source_provenance_references": [
+                        "project.initial_creative_intent"
+                    ],
+                },
+                {
+                    "option_id": "title-2",
+                    "title": "Studio Echo",
+                    "rationale": "Reflects the production-memory premise.",
+                    "recommendation_authority": "ai_recommendation",
+                    "source_provenance_references": [
+                        "project.initial_creative_intent"
+                    ],
+                },
+                {
+                    "option_id": "title-3",
+                    "title": "First Signal",
+                    "rationale": "Keeps the title concise and unresolved.",
+                    "recommendation_authority": "ai_recommendation",
+                    "source_provenance_references": [
+                        "project.initial_creative_intent"
+                    ],
+                },
+            ],
+            retrieved_project_facts=["Working title not yet selected."],
             retrieved_production_constraints=["No approved constraints were found."],
             concept_directions=["Direction one.", "Direction two."],
             creative_production_implications=[
@@ -431,6 +571,9 @@ class AgentContractTests(unittest.TestCase):
 
         self.assertIn("non-authoritative recommendation", response.governance_boundary)
         self.assertNotIn("approved canon", response.governance_boundary)
+        self.assertTrue(response.working_title_options)
+        for option in response.working_title_options:
+            self.assertEqual(option.recommendation_authority, "ai_recommendation")
 
     def test_agent_context_retrieval_uses_mcp_not_direct_clickhouse(self) -> None:
         source = inspect.getsource(refinement_agent)

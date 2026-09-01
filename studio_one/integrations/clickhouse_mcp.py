@@ -19,11 +19,6 @@ from studio_one.config import mcp_python_executable
 from studio_one.config import repo_root
 
 
-_DEFAULT_CONFIG = StudioOneConfig.from_env()
-GOOGLE_CLOUD_PROJECT = _DEFAULT_CONFIG.google_cloud_project
-CLICKHOUSE_DATABASE = _DEFAULT_CONFIG.clickhouse_database
-
-
 def _uuid_literal(value: str, field_name: str) -> str:
     try:
         parsed = UUID(str(value))
@@ -85,6 +80,39 @@ async def _run_query(
 ) -> dict[str, Any]:
     result = await session.call_tool("run_query", {"query": query})
     return _parse_mcp_tool_json(result, secret_value)
+
+
+def build_mcp_child_environment(
+    runtime_config: StudioOneConfig,
+    secret_value: str,
+) -> dict[str, str]:
+    return {
+        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
+        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
+        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
+        "CLICKHOUSE_PASSWORD": secret_value,
+        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
+        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
+        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
+        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
+        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
+        "CLICKHOUSE_ALLOW_DROP": "false",
+        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
+            runtime_config.mcp_query_timeout_seconds
+        ),
+    }
+
+
+def build_mcp_server_parameters(
+    runtime_config: StudioOneConfig,
+    secret_value: str,
+) -> StdioServerParameters:
+    return StdioServerParameters(
+        command=str(mcp_python_executable()),
+        args=["-m", "mcp_clickhouse.main"],
+        env=build_mcp_child_environment(runtime_config, secret_value),
+        cwd=str(repo_root()),
+    )
 
 
 def _project_query(project_id: str, database: str) -> str:
@@ -587,28 +615,7 @@ async def retrieve_project_memory_bundle(
     if generation_package_version is not None and not generation_package_id:
         raise ValueError("generation_package_id is required with generation_package_version")
 
-    child_env = {
-        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
-        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
-        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
-        "CLICKHOUSE_PASSWORD": secret_value,
-        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
-        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
-        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
-        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
-        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
-        "CLICKHOUSE_ALLOW_DROP": "false",
-        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
-            runtime_config.mcp_query_timeout_seconds
-        ),
-    }
-
-    params = StdioServerParameters(
-        command=str(mcp_python_executable()),
-        args=["-m", "mcp_clickhouse.main"],
-        env=child_env,
-        cwd=str(repo_root()),
-    )
+    params = build_mcp_server_parameters(runtime_config, secret_value)
 
     query_purposes = [
         "Retrieve approved project memory by project_id",
@@ -751,27 +758,7 @@ async def retrieve_qc_memory_bundle(
     runtime_config = config or StudioOneConfig.from_env()
     secret_value = get_clickhouse_password(runtime_config)
 
-    child_env = {
-        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
-        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
-        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
-        "CLICKHOUSE_PASSWORD": secret_value,
-        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
-        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
-        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
-        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
-        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
-        "CLICKHOUSE_ALLOW_DROP": "false",
-        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
-            runtime_config.mcp_query_timeout_seconds
-        ),
-    }
-    params = StdioServerParameters(
-        command=str(mcp_python_executable()),
-        args=["-m", "mcp_clickhouse.main"],
-        env=child_env,
-        cwd=str(repo_root()),
-    )
+    params = build_mcp_server_parameters(runtime_config, secret_value)
 
     query_purposes = [
         "Retrieve approved project memory by project_id",
@@ -896,27 +883,7 @@ async def retrieve_post_production_memory_bundle(
     runtime_config = config or StudioOneConfig.from_env()
     secret_value = get_clickhouse_password(runtime_config)
 
-    child_env = {
-        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
-        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
-        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
-        "CLICKHOUSE_PASSWORD": secret_value,
-        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
-        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
-        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
-        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
-        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
-        "CLICKHOUSE_ALLOW_DROP": "false",
-        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
-            runtime_config.mcp_query_timeout_seconds
-        ),
-    }
-    params = StdioServerParameters(
-        command=str(mcp_python_executable()),
-        args=["-m", "mcp_clickhouse.main"],
-        env=child_env,
-        cwd=str(repo_root()),
-    )
+    params = build_mcp_server_parameters(runtime_config, secret_value)
 
     query_purposes = [
         "Retrieve approved project memory by project_id",
@@ -1018,27 +985,7 @@ async def retrieve_publish_memory_bundle(
     runtime_config = config or StudioOneConfig.from_env()
     secret_value = get_clickhouse_password(runtime_config)
 
-    child_env = {
-        "CLICKHOUSE_HOST": runtime_config.clickhouse_host,
-        "CLICKHOUSE_PORT": str(runtime_config.clickhouse_port),
-        "CLICKHOUSE_USER": runtime_config.clickhouse_user,
-        "CLICKHOUSE_PASSWORD": secret_value,
-        "CLICKHOUSE_DATABASE": runtime_config.clickhouse_database,
-        "CLICKHOUSE_SECURE": str(runtime_config.clickhouse_secure).lower(),
-        "CLICKHOUSE_VERIFY": str(runtime_config.clickhouse_verify).lower(),
-        "CLICKHOUSE_MCP_SERVER_TRANSPORT": "stdio",
-        "CLICKHOUSE_ALLOW_WRITE_ACCESS": "false",
-        "CLICKHOUSE_ALLOW_DROP": "false",
-        "CLICKHOUSE_MCP_QUERY_TIMEOUT": str(
-            runtime_config.mcp_query_timeout_seconds
-        ),
-    }
-    params = StdioServerParameters(
-        command=str(mcp_python_executable()),
-        args=["-m", "mcp_clickhouse.main"],
-        env=child_env,
-        cwd=str(repo_root()),
-    )
+    params = build_mcp_server_parameters(runtime_config, secret_value)
 
     query_purposes = [
         "Retrieve approved project context and production constraints by project_id",

@@ -2,6 +2,7 @@ google-adk
 google-genai
 google-cloud-secret-manager
 clickhouse-connect
+mcp-clickhouse
 python-dotenv
 fastapi
 uvicorn[standard]
