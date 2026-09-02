@@ -79,13 +79,13 @@ gcloud run deploy studio-one `
   --region REGION `
   --service-account SERVICE_ACCOUNT_EMAIL `
   --allow-unauthenticated `
-  --set-env-vars GOOGLE_CLOUD_PROJECT=PROJECT_ID,GOOGLE_CLOUD_LOCATION=REGION,GEMINI_MODEL=GEMINI_MODEL,CLICKHOUSE_HOST=CLICKHOUSE_HOST,CLICKHOUSE_USER=CLICKHOUSE_USER,CLICKHOUSE_DATABASE=CLICKHOUSE_DATABASE,CLICKHOUSE_PASSWORD_SECRET=CLICKHOUSE_PASSWORD_SECRET,CLICKHOUSE_PORT=8443,CLICKHOUSE_SECURE=true,CLICKHOUSE_VERIFY=true,CLICKHOUSE_MCP_QUERY_TIMEOUT=90
+  --set-env-vars GOOGLE_CLOUD_PROJECT=PROJECT_ID,GOOGLE_CLOUD_LOCATION=us,GEMINI_MODEL=gemini-3.5-flash,GOOGLE_GENAI_USE_VERTEXAI=true,CLICKHOUSE_HOST=CLICKHOUSE_HOST,CLICKHOUSE_USER=CLICKHOUSE_USER,CLICKHOUSE_DATABASE=continuity_engine,CLICKHOUSE_PASSWORD_SECRET=CLICKHOUSE_PASSWORD_SECRET,CLICKHOUSE_PORT=8443,CLICKHOUSE_SECURE=true,CLICKHOUSE_VERIFY=true,CLICKHOUSE_MCP_QUERY_TIMEOUT=90
 ```
 
 Minimum runtime IAM for `SERVICE_ACCOUNT_EMAIL`:
 
 - Secret Manager access to the configured ClickHouse password secret: `roles/secretmanager.secretAccessor` on that secret.
-- Vertex AI/Gemini invocation in the configured project/region. Prefer a custom role limited to prediction/inference permissions where available; otherwise use the narrowest predefined Vertex AI/Agent Platform user role accepted by the project.
+- Vertex AI/Gemini invocation in the configured project/location. Prefer a custom role limited to prediction/inference permissions where available; otherwise use the narrowest predefined Vertex AI/Agent Platform user role accepted by the project.
 
 Cloud Run should use its service account and Application Default Credentials. Do not deploy with downloaded service-account JSON keys in the image or repository.
 
